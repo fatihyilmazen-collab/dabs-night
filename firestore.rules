@@ -1,0 +1,44 @@
+rules_version = '2';
+// DABS Night: only approved team members can read or change the DABS.
+// OWNER: change the email below if you sign in with a different address (and in firebase-config.js).
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isOwner() {
+      return signedIn() && request.auth.token.email == 'yilmazfatih05@gmail.com'
+        && request.auth.token.email_verified == true;
+    }
+    function memberDoc() { return /databases/$(database)/documents/members/$(request.auth.uid); }
+    function role() { return exists(memberDoc()) ? get(memberDoc()).data.role : 'none'; }
+    function canRead() { return isOwner() || (signedIn() && role() in ['viewer', 'contributor', 'admin']); }
+    function canWrite() { return isOwner() || (signedIn() && role() in ['contributor', 'admin']); }
+    function isAdmin() { return isOwner() || (signedIn() && role() == 'admin'); }
+
+    match /members/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      // anyone signed in can ask to join, only as 'pending'
+      allow create: if signedIn() && request.auth.uid == uid && request.resource.data.role == 'pending';
+      // people can fix their own name; only admins change roles
+      allow update: if isAdmin()
+        || (signedIn() && request.auth.uid == uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name']));
+      allow delete: if isAdmin();
+    }
+    match /nights/{nightId} {
+      allow read: if canRead();
+      allow create, update: if canWrite();
+      allow delete: if isAdmin();
+      match /items/{itemId} {
+        allow read: if canRead();
+        allow create, update: if canWrite();
+        allow delete: if canWrite();
+      }
+    }
+    match /files/{fileId} {
+      allow read: if canRead();
+      allow create: if canWrite();
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+  }
+}
