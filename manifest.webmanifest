@@ -1,8 +1,7 @@
 {
-  "name": "DABS Night TEST",
-  "short_name": "DABS Night TEST",
+  "name": "DABS Night",
+  "short_name": "DABS Night",
   "description": "Night shift DABS tracker for the Turbine Building piping team.",
-  "id": "./?app=test",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

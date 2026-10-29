@@ -8,11 +8,11 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<meta name="apple-mobile-web-app-title" content="DABS Night TEST">
+<meta name="apple-mobile-web-app-title" content="DABS Night">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<title>DABS Night TEST</title>
+<title>DABS Night</title>
 <style>
 /* Layout: one-column field list, sticky progress header, fixed action bar at the thumb. Dark-first for night site use. */
 :root{
@@ -167,7 +167,7 @@ select{border:1px solid var(--line);background:var(--surface-2);border-radius:8p
 .who{font-size:11.5px;color:var(--muted)}
 #banner:empty{display:none}
 #banner{padding-block:12px 0}
-.ro .seg button,.ro .bchip,.ro .card textarea,.ro .addact,.ro .row-tools select,.ro .card .link{pointer-events:none;opacity:.55}
+.ro .seg button,.ro .bchip,.ro textarea,.ro .addact,.ro .row-tools select,.ro .card .link{pointer-events:none;opacity:.55}
 .loading{color:var(--muted);padding-block:28px}
 .authform{display:flex;flex-direction:column;gap:12px;width:100%;max-width:420px}
 .authform label{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--muted)}
@@ -177,67 +177,15 @@ select{border:1px solid var(--line);background:var(--surface-2);border-radius:8p
 .or{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px}
 .or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
 .bk p{font-size:13.5px}
-
-/* test copy */
-.testbar{background:#ff7a1a;color:#1a0d00;font-weight:800;font-size:12px;letter-spacing:.06em;text-align:center;padding:5px 12px}
-
-/* change history on a card */
-.chist .hl,.chist summary span:first-child{color:var(--muted);font-weight:600}
-.chist li{grid-template-columns:48px 1fr}
-.chist .ha{color:var(--fg)}
-
-/* bottom bar badge */
-.cnt{display:inline-block;min-width:20px;padding:1px 6px;border-radius:999px;background:var(--no);color:#fff;font-size:12px;margin-left:4px;font-variant-numeric:tabular-nums}
-
-/* menu */
-.menu{display:flex;flex-direction:column;gap:8px}
-.mi{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;border:1px solid var(--line);background:var(--surface-2);border-radius:10px;padding:12px 14px;min-height:56px}
-.mi strong{font-size:15px}.mi span{font-size:12.5px;color:var(--muted)}
-
-/* forms in sheets */
-.pplform{display:flex;flex-direction:column;gap:10px;border:1px solid var(--line);border-radius:10px;padding:12px}
-.panel select,.panel textarea{width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:9px;font-size:15px}
-.panel textarea{resize:vertical;font-family:inherit}
-.pplAdd summary,.cndone summary{cursor:pointer;font-weight:700;padding:8px 0;color:var(--accent)}
-.pplAdd{display:flex;flex-direction:column;gap:10px}
-.pplAdd[open]>form+form{margin-top:10px}
-.pplsum{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.pplTotal{width:100%;font-size:14px}.pplTotal b{font-size:22px}
-.pchip{border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:12.5px;font-variant-numeric:tabular-nums}
-.pchip b{color:var(--accent)}
-.pgrp h4{margin:10px 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
-.pplfind{margin-top:4px}
-.mapf{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:0}
-.mapf legend{font-weight:700;padding:0 4px}
-.bchip.pick[aria-pressed="true"]{background:var(--go-bg);border-color:var(--go);color:var(--fg)}
-
-/* concern list */
-.cn{border:1px solid var(--line);border-left:4px solid var(--no);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;margin-bottom:8px;background:var(--surface-2)}
-.cn.done{border-left-color:var(--ok);opacity:.8}
-.cnh{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.ctype{font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:2px 8px;border-radius:5px;background:var(--no-bg);color:var(--no)}
-.ctype.t-concern{background:var(--surface);color:var(--accent);border:1px solid var(--accent)}
-.ctype.t-fixneeded{background:var(--go-bg);color:var(--go)}
-.ctrade{font-size:12px;font-weight:700}
-.cnd{white-space:pre-wrap;font-size:14.5px}
-.cnb{display:flex;gap:16px;flex-wrap:wrap}
-.cnhd{margin:12px 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
-
-/* briefing */
-.btabs{margin-top:4px}
-.bform{display:flex;flex-direction:column;gap:10px}
-.bsign{font-size:13px;border:1px dashed var(--line);border-radius:8px;padding:8px 10px}
-.panel>*{flex-shrink:0}
 </style>
 </head>
 <body>
 <header class="top">
-  <div class="testbar" id="testBar" hidden>TEST VERSION · separate data, the live app is not affected</div>
   <div class="wrap">
     <div class="brand">
       <div class="mark" aria-hidden="true"></div>
       <div class="grow"><h1>DABS Night</h1><span class="file" id="fileName"></span><span class="sync" id="sync"></span></div>
-      <button class="ghost" id="btnMenu" type="button" hidden>Menu</button>
+      <button class="ghost" id="btnArchive" type="button">Archive</button>
       <button class="ghost" id="btnNew" type="button">Load DABS</button>
     </div>
     <div id="progressBox" hidden>
@@ -249,7 +197,6 @@ select{border:1px solid var(--line);background:var(--surface-2);border-radius:8p
 </header>
 
 <input type="file" id="bkInput" accept=".json,application/json" hidden>
-<input type="file" id="replaceInput" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
 <input type="file" id="fileInput" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
 
 <div class="wrap" id="banner"></div>
@@ -257,7 +204,7 @@ select{border:1px solid var(--line);background:var(--surface-2);border-radius:8p
 
 <nav class="actions" id="actions" hidden>
   <div class="wrap">
-    <button class="btn alt" id="btnConcerns" type="button">Concern list</button>
+    <button class="btn alt" id="btnHandover" type="button">Handover text</button>
     <button class="btn" id="btnExport" type="button">Export Excel</button>
   </div>
 </nav>
@@ -267,6 +214,6 @@ select{border:1px solid var(--line);background:var(--surface-2);border-radius:8p
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(function(){});</script>
-<script type="module" src="app.js?v=2.0.0-test"></script>
+<script type="module" src="app.js?v=1.0.2"></script>
 </body>
 </html>
