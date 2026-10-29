@@ -1,12 +1,12 @@
 rules_version = '2';
 // DABS Night: only approved team members can read or change the DABS.
-// OWNER: change the email below if you sign in with a different address (and in firebase-config.js).
+// OWNERS: the accounts below approve the team. Keep this list the same as in firebase-config.js.
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
     function isOwner() {
-      return signedIn() && request.auth.token.email == 'yilmazfatih05@gmail.com'
-        && request.auth.token.email_verified == true;
+      return signedIn() && request.auth.token.email_verified == true
+        && request.auth.token.email in ['fatihyilmaz.en@gmail.com', 'yilmazfatih05@gmail.com'];
     }
     function memberDoc() { return /databases/$(database)/documents/members/$(request.auth.uid); }
     function role() { return exists(memberDoc()) ? get(memberDoc()).data.role : 'none'; }
