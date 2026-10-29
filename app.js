@@ -235,7 +235,11 @@ function subscribeNights(){
     if(!c){if(unsubItems)unsubItems();unsubItems=null;cur=null;doc=null;bytes=null;st={};added=[];
       const l=latest();if(l)await openNight(l);else renderAll();toast('That night was deleted by an admin');return}
     Object.assign(cur,c);renderTop();renderBanner();if(archiveOpen)openArchive();
-  },e=>{if(e.code==='permission-denied')return;$('#main').innerHTML=`<p class="err">Could not load the team's DABS (${esc(e.code||'error')}). Reopen the app.</p>`});
+  },e=>{
+    if(e.code==='permission-denied'){
+      if(isAdmin){$('#main').innerHTML=`<section class="empty"><h2>Database rules are not set</h2><p>Firebase is refusing access. In the Firebase console open <strong>Firestore Database → Rules</strong>, paste the contents of <strong>firestore.rules</strong>, then press <strong>Publish</strong> and reopen this app.</p><p>Signed in as <strong>${esc(authUser&&authUser.email||'')}</strong>.</p></section>`}
+      return}
+    $('#main').innerHTML=`<p class="err">Could not load the team's DABS (${esc(e.code||'error')}). Reopen the app.</p>`});
 }
 function stopListening(){if(unsubItems)unsubItems();if(unsubNights)unsubNights();unsubItems=unsubNights=null;nights=[];cur=null;doc=null;bytes=null;st={};added=[];ready=false}
 async function openNight(n){
