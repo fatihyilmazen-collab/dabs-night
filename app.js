@@ -2,7 +2,7 @@ import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,sendPasswordResetEmail,sendEmailVerification,updateProfile,signOut,GoogleAuthProvider,signInWithPopup} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {initializeFirestore,persistentLocalCache,persistentMultipleTabManager,doc as fdoc,collection as fcol,getDoc,getDocs,setDoc,updateDoc,deleteDoc,onSnapshot as fsnap,query as fquery,orderBy as forder,limit as flimit} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import {firebaseConfig,OWNER_EMAIL,ENV} from './firebase-config.js';
-const APP_VERSION='2.0.11032145';
+const APP_VERSION='2.0.11042330';
 
 
 const NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
@@ -271,7 +271,7 @@ function subscribeItems(){
       if(applyItemDoc(id,d))changed.push(id);
     }
     first=false;initState();updateSync();
-    if(structural)renderAll();else{changed.forEach(id=>rerenderCard(id,true));renderTop()}
+    if(structural)renderAllSoon();else{changed.forEach(id=>rerenderCard(id,true));renderTop()}
   },e=>{toast('Live updates stopped ('+(e.code||'error')+'). Reopen the app.')},true);
 }
 function showNoAccess(){
@@ -307,7 +307,7 @@ function subscribeTagHist(){
     tagHist=new Map();for(const d of snap.docs){const ns=(d.data()||{}).nights||{};for(const k in ns)tagHist.set(k,ns[k])}
     tagHistReady=true;histIdx=null;
     if(canWrite)for(const n of nights)if(n.items&&n.items.length&&!tagHist.has(n.id)&&!backfilled.has(n.id)){backfilled.add(n.id);writeTagHist(n,n.items)}
-    if(doc)renderMain();
+    if(doc)renderMainSoon();
   },()=>{});
 }
 async function loadOlderNights(){
@@ -438,6 +438,15 @@ function historyOf(tag){
 }
 const nightsNotDone=h=>new Set(h.filter(x=>x.s!=='DONE').map(x=>x.id)).size;
 
+
+/* updates from the server must not redraw the list while someone is typing in it:
+   that would remove the box being typed in and close the phone keyboard. The redraw waits until typing stops. */
+function mainBusy(){const a=document.activeElement;return !!(a&&a.closest&&a.closest('#main')&&/^(TEXTAREA|INPUT|SELECT)$/.test(a.tagName))}
+let deferredRender=null,deferredT=null;
+function renderMainSoon(){if(mainBusy()){if(deferredRender!=='all')deferredRender='main';return}renderMain()}
+function renderAllSoon(){if(mainBusy()){deferredRender='all';return}renderAll()}
+document.addEventListener('focusout',()=>{if(!deferredRender)return;clearTimeout(deferredT);
+  deferredT=setTimeout(()=>{if(!deferredRender||mainBusy())return;const d=deferredRender;deferredRender=null;if(d==='all')renderAll();else renderMain()},700)});
 /* ---------- rendering ---------- */
 function counts(){
   const c={DONE:0,ONGOING:0,'NOT DONE':0,unset:0,total:0};
@@ -2082,6 +2091,7 @@ function showVerify(u){
 }
 async function fbSignOut(){if(unsubMember){unsubMember();unsubMember=null}if(unsubTeam){unsubTeam();unsubTeam=null}stopListening();closeSheet();try{await signOut(auth)}catch(e){}}
 function subscribeAll(){subscribeSettings();subscribePeople();subscribeConcerns();subscribeTagHist();subscribeNights()}
+let lastRole=null;
 function startMember(u){
   if(unsubMember){unsubMember();unsubMember=null}
   const owner=[].concat(OWNER_EMAIL||[]).map(x=>String(x).toLowerCase()).includes((u.email||'').toLowerCase());
@@ -2097,7 +2107,9 @@ function startMember(u){
     document.documentElement.classList.toggle('ro',!canWrite);
     if(!prepBy)prepBy=myName();
     updateSync();
-    if(!unsubNights){setSync('load');renderAll();subscribeAll()}else{renderAll();updateSync()}
+    if(!unsubNights){setSync('load');renderAll();subscribeAll()}
+    else if(role!==lastRole){renderAllSoon();updateSync()}   // only a change of access needs a redraw
+    lastRole=role;
   },()=>{showWaiting()});
 }
 
