@@ -2,7 +2,7 @@ import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,sendPasswordResetEmail,sendEmailVerification,updateProfile,signOut,GoogleAuthProvider,signInWithPopup} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {initializeFirestore,persistentLocalCache,persistentMultipleTabManager,doc as fdoc,collection as fcol,getDoc,getDocs,setDoc,updateDoc,deleteDoc,onSnapshot as fsnap,query as fquery,orderBy as forder,limit as flimit} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import {firebaseConfig,OWNER_EMAIL,ENV} from './firebase-config.js';
-const APP_VERSION='2.0.11042330';
+const APP_VERSION='2.0.11042343';
 
 
 const NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
@@ -511,6 +511,7 @@ function histHtml(it){
     <ul>${h.slice(0,6).map(x=>`<li><span class="hd">${esc(x.label)}</span><span class="hs ${tone(x.s)}">${esc(x.s||'NOT UPDATED')}</span><span class="ha">${esc(x.a)}${x.b.length?' · '+esc(x.b.join(', ')):''}</span></li>`).join('')}</ul></details>`;
 }
 function renderMain(){
+  if(mainBusy()){deferredRender=deferredRender==='all'?'all':'main';return}   // never redraw under someone typing
   const m=$('#main');
   renderBanner();
   if(!doc){
@@ -538,7 +539,7 @@ function renderBanner(){
   b.innerHTML=`<div class="older"><span>You are viewing an older night (${esc(cur.label)}). Changes are saved to that night.</span><button class="btn alt" type="button" id="goLatest">Open ${esc(lt.label)}</button></div>`;
   $('#goLatest').onclick=async()=>{try{await openNight(latest());window.scrollTo(0,0)}catch(e){toast(e.message)}};
 }
-function renderAll(){renderTop();if(doc)renderFilters();renderMain()}
+function renderAll(){renderTop();if(mainBusy()){deferredRender='all';return}if(doc)renderFilters();renderMain()}
 function rerenderCard(id,remote){
   const it=findItem(id);const el=$('#card-'+id);if(!el||!it)return;
   const focusNote=document.activeElement&&document.activeElement.id==='note-'+id;
@@ -1615,6 +1616,7 @@ function guard(id,it,next,newVal,col){
 }
 document.addEventListener('click',e=>{
   const b=e.target.closest('[data-act],[data-view],[data-level]');if(!b)return;
+  if((b.dataset.view||(b.dataset.level!==undefined&&!b.dataset.act))&&document.activeElement&&document.activeElement.blur)document.activeElement.blur();
   if(b.dataset.view){filter.view=b.dataset.view;renderFilters();renderMain();return}
   if(b.dataset.level!==undefined&&!b.dataset.act){filter.level=filter.level===b.dataset.level?null:b.dataset.level;renderFilters();renderMain();return}
   if(b.closest('#panel'))return;
