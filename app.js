@@ -2,7 +2,7 @@ import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,sendPasswordResetEmail,sendEmailVerification,updateProfile,signOut,GoogleAuthProvider,signInWithPopup} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {initializeFirestore,persistentLocalCache,persistentMultipleTabManager,doc as fdoc,collection as fcol,getDoc,getDocs,setDoc,updateDoc,deleteDoc,onSnapshot as fsnap,query as fquery,orderBy as forder,limit as flimit} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import {firebaseConfig,OWNER_EMAIL,ENV} from './firebase-config.js';
-const APP_VERSION='2.0.11042343';
+const APP_VERSION='2.0.11050510';
 
 
 const NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
@@ -1854,7 +1854,11 @@ async function buildXlsx(){
   const cl=exportConcerns();
   if(cl.length){
     const hdrXf=xfs.children[getS0(sec0.header,sec0.cols.act)??0];const border=hdrXf?+(hdrXf.getAttribute('borderId')||0):0;
-    const fT=addFont({b:true,sz:12,color:'FFC00000'}),fH=addFont({b:true,sz:10,color:'FFC00000'}),fR=addFont({sz:10,color:'FFC00000'});
+    // same text size as the DABS tables above (read from tonight's file)
+    const szOf=xi=>{const xf=xfs.children[xi];const f=xf&&fonts.children[+(xf.getAttribute('fontId')||0)];const z=f&&kid(f,'sz');const v=z?parseFloat(z.getAttribute('val')):NaN;return isNaN(v)?null:v};
+    const it0=(sec0.items[0]||{}).row;
+    const szH=szOf(getS0(sec0.header,sec0.cols.act)??0)||11,szB=(it0!=null&&szOf(getS0(it0,sec0.cols.act)??0))||11;
+    const fT=addFont({b:true,sz:szB+2,color:'FFC00000'}),fH=addFont({b:true,sz:szH,color:'FFC00000'}),fR=addFont({sz:szB,color:'FFC00000'});
     const xT=addXf(fT),xH=addXf(fH,{border,wrap:true}),xR=addXf(fR,{border,wrap:true,v:'top'});
     let r=maxRow+3;
     setText(cellEl(r,2),'CONCERN LIST · open items carried over and tonight\'s concerns ('+cl.filter(c=>!c.resolved).length+' open)',xT);
@@ -1866,8 +1870,9 @@ async function buildXlsx(){
     for(const c of cl){r++;
       const vals={2:c.type,3:c.trade||'All',4:c.byName||'',5:fmtDT(c.at),6:c.desc,11:c.resolved?'Resolved '+fmtDT(c.resolvedAt)+(c.resolvedByName?' by '+c.resolvedByName:''):(cur&&c.at<cur.loadedAt?'Open (carried over)':'Open')};
       for(const k in vals)setText(cellEl(r,+k),vals[k],xR);for(let k=7;k<=10;k++)setText(cellEl(r,k),'',xR);merge('F'+r+':J'+r);
-      const lines=Math.max(1,Math.ceil(String(c.desc).length/80),String(c.desc).split('\n').length,Math.ceil(String(vals[11]).length/22));
-      const re=rowEl(r);re.setAttribute('ht',String(Math.max(15,14*lines)));re.setAttribute('customHeight','1');
+      const k=11/szB;   // bigger text fits fewer characters per line
+      const lines=Math.max(1,Math.ceil(String(c.desc).length/(85*k)),String(c.desc).split('\n').length,Math.ceil(String(vals[11]).length/(55*k)),Math.ceil(String(vals[2]||'').length/(8*k)),Math.ceil(String(vals[3]||'').length/(12*k)),Math.ceil(String(vals[4]||'').length/(12*k)),Math.ceil(String(vals[5]||'').length/(24*k)));
+      const re=rowEl(r);re.setAttribute('ht',String(Math.round(Math.max(szB*1.45,szB*1.35*lines+3))));re.setAttribute('customHeight','1');
     }
     borderRanges.push([r0,r,2,11]);
     maxRow=r;maxCol=Math.max(maxCol,11);
