@@ -2,7 +2,7 @@ import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,sendPasswordResetEmail,sendEmailVerification,updateProfile,signOut,GoogleAuthProvider,signInWithPopup} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {initializeFirestore,persistentLocalCache,persistentMultipleTabManager,doc as fdoc,collection as fcol,getDoc,getDocs,setDoc,updateDoc,deleteDoc,onSnapshot as fsnap,query as fquery,orderBy as forder,limit as flimit} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import {firebaseConfig,OWNER_EMAIL,ENV} from './firebase-config.js';
-const APP_VERSION='2.0.11080037';
+const APP_VERSION='2.0.11080245';
 
 
 const NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
@@ -473,14 +473,16 @@ function buildHist(){
   for(const n of allNights())if(!src.has(n.id)&&n.items)src.set(n.id,{label:n.label,at:n.loadedAt,items:n.items});
   for(const [id,n] of src){if(id===cur.id||n.at>=cur.loadedAt)continue;
     for(const it of n.items||[])for(const tk of tokens(it.t)){
-      const arr=histIdx.get(tk)||[];arr.push({id,label:n.label||'',at:n.at,a:it.a,s:it.s,b:it.b||[]});histIdx.set(tk,arr)}}
+      const arr=histIdx.get(tk)||[];arr.push({id,label:n.label||'',at:n.at,t:it.t||'',a:it.a,s:it.s,b:it.b||[],n:it.n||''});histIdx.set(tk,arr)}}
 }
+/* same job = the same set of spool/support numbers; a row that only shares one of them is "related", shown with its own tag */
+const tagSig=t=>tokens(t).sort().join('&')||String(t||'').toUpperCase().replace(/\s+/g,'');
 function historyOf(tag){
-  if(!histIdx)buildHist();const seen=new Map();
-  for(const tk of tokens(tag))for(const h of histIdx.get(tk)||[]){const k=h.id+'|'+h.a;if(!seen.has(k))seen.set(k,h)}
-  return [...seen.values()].sort((a,b)=>b.at-a.at);
+  if(!histIdx)buildHist();const seen=new Map();const me=tagSig(tag);
+  for(const tk of tokens(tag))for(const h of histIdx.get(tk)||[]){const k=h.id+'|'+tagSig(h.t)+'|'+h.a;if(!seen.has(k))seen.set(k,Object.assign({},h,{same:tagSig(h.t)===me}))}
+  return [...seen.values()].sort((a,b)=>(b.same-a.same)||(b.at-a.at));
 }
-const nightsNotDone=h=>new Set(h.filter(x=>x.s!=='DONE').map(x=>x.id)).size;
+const nightsNotDone=h=>new Set(h.filter(x=>x.same!==false&&x.s!=='DONE').map(x=>x.id)).size;
 
 
 /* updates from the server must not redraw the list while someone is typing in it:
@@ -550,9 +552,13 @@ function cardHtml(it){
 }
 function histHtml(it){
   const h=historyOf(it.tag);if(!h.length)return '';
+  const same=h.filter(x=>x.same!==false),rel=h.filter(x=>x.same===false);
   const nd=nightsNotDone(h);const tone=s=>s==='DONE'?'ok':s==='ONGOING'?'go':s==='NOT DONE'?'no':'un';
-  return `<details class="hist"><summary><span class="hl">${nd?`Carried over · ${nd} earlier ${nd===1?'night':'nights'} not done`:'Seen on earlier DABS'}</span><span class="hc">${h.length}</span></summary>
-    <ul>${h.slice(0,6).map(x=>`<li><span class="hd">${esc(x.label)}</span><span class="hs ${tone(x.s)}">${esc(x.s||'NOT UPDATED')}</span><span class="ha">${esc(x.a)}${x.b.length?' · '+esc(x.b.join(', ')):''}</span></li>`).join('')}</ul></details>`;
+  const li=(x,showTag)=>`<li><span class="hd">${esc(x.label)}</span><span class="hs ${tone(x.s)}">${esc(x.s||'NOT UPDATED')}</span><span class="ha">${showTag?`<strong>${esc(x.t)}</strong> · `:''}${esc(x.a)}${x.b.length?' · '+esc(x.b.join(', ')):''}${x.n?`<span class="hn">${esc(x.n)}</span>`:''}</span></li>`;
+  const title=nd?`Carried over · ${nd} earlier ${nd===1?'night':'nights'} not done`:same.length?'Seen on earlier DABS':'Related spool on earlier DABS';
+  return `<details class="hist"><summary><span class="hl">${title}</span><span class="hc">${same.length||rel.length}</span></summary>
+    ${same.length?`<ul>${same.slice(0,6).map(x=>li(x,false)).join('')}</ul>`:''}
+    ${rel.length?`<p class="hrel">Other rows that share a number with this tag</p><ul>${rel.slice(0,4).map(x=>li(x,true)).join('')}</ul>`:''}</details>`;
 }
 function renderMain(){
   if(mainBusy()){deferredRender=deferredRender==='all'?'all':'main';return}   // never redraw under someone typing
