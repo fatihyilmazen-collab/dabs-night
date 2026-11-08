@@ -284,6 +284,18 @@ select{border:1px solid var(--line);background:var(--surface-2);border-radius:8p
 .talist{display:flex;flex-direction:column;gap:4px;max-height:50vh;overflow:auto}
 .tarow{display:flex;gap:10px;align-items:center;padding:8px 6px;border-bottom:1px solid var(--line);font-size:14px}
 .tarow input{width:20px;height:20px;flex:none}
+
+/* concern list tabs */
+.cntabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-top:6px;border:0;padding:0}
+.cntabs button{border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:9px 6px;font-weight:700;font-size:14px;color:var(--fg)}
+.cntabs button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.cntabs button[aria-pressed="true"] .nc{color:inherit;opacity:.8}
+.cn.arch{border-left-color:var(--muted);opacity:.75}
+/* night date question */
+.ndq{display:flex;flex-direction:column;gap:8px}
+.ndq .seen{font-size:13.5px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--surface-2)}
+.ndq .seen b{font-variant-numeric:tabular-nums}
+.ndq input[type=date]{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:10px;font-size:16px;color:var(--fg)}
 </style>
 </head>
 <body>
@@ -323,6 +335,6 @@ select{border:1px solid var(--line);background:var(--surface-2);border-radius:8p
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(function(){});</script>
-<script type="module" src="app.js?v=2.0.11050510"></script>
+<script type="module" src="app.js?v=2.0.11080037"></script>
 </body>
 </html>

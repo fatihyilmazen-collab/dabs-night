@@ -2,7 +2,7 @@ import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,sendPasswordResetEmail,sendEmailVerification,updateProfile,signOut,GoogleAuthProvider,signInWithPopup} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {initializeFirestore,persistentLocalCache,persistentMultipleTabManager,doc as fdoc,collection as fcol,getDoc,getDocs,setDoc,updateDoc,deleteDoc,onSnapshot as fsnap,query as fquery,orderBy as forder,limit as flimit} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import {firebaseConfig,OWNER_EMAIL,ENV} from './firebase-config.js';
-const APP_VERSION='2.0.11050510';
+const APP_VERSION='2.0.11080037';
 
 
 const NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
@@ -124,11 +124,18 @@ async function parseDabs(u8,fileName){
     const tagLabel=before.length?before[before.length-1][1]:'Tag';
     const trades=hdr.filter(([c])=>c>h.actCol&&c!==cols.remark&&(!cols.remark||c<cols.remark)).map(([c,t])=>({col:c,name:t}));
     if(!cols.remark)cols.remark=(trades.length?trades[trades.length-1].col:h.actCol)+1;
-    let title='';let titleRow=h.row;
-    for(let r=h.row-1;r>=Math.max(1,h.row-4);r--){const vals=[];for(let c=1;c<=20;c++){const t=txt(own(r,c));if(t)vals.push(t)}
-      if(vals.length){title=vals[0];titleRow=r;for(let c=1;c<=20;c++)if(txt(own(r,c))){h.titleCol=c;break}break}}
+    // the title is the text row just above the header; a row of the previous table (a job with a tag or activity, or a bare number) is not a title
+    let title='';let titleRow=h.row;const stop=i>0?headers[i-1].row+1:1;
+    for(let r=h.row-1;r>=Math.max(stop,h.row-4);r--){const vals=[];for(let c=1;c<=20;c++){const t=txt(own(r,c));if(t)vals.push(t)}
+      if(!vals.length)continue;
+      const isJob=txt(own(r,cols.act))||txt(own(r,cols.tag))||txt(own(r,h.actCol));
+      if(isJob||!/[a-z]{2}/i.test(vals[0])||/^[+-]?\d+(\.\d+)?$/.test(vals[0]))break;
+      title=vals[0];titleRow=r;for(let c=1;c<=20;c++)if(txt(own(r,c))){h.titleCol=c;break}break}
     h.titleRow=titleRow;
-    sections.push({title:title||('Section '+(i+1)),header:h.row,titleRow,titleCol:h.titleCol||cols.level||1,hdr,cols,trades,tagLabel,items:[]});
+    if(!title){const tn=trades.map(t=>t.name).join(' ');
+      const kind=/spool/i.test(tagLabel)?'Spool':/support/i.test(tagLabel)?'Support':/pip/i.test(tn)?'Spool':/plat/i.test(tn)?'Support':'';
+      title=kind?'DABS '+kind:'Section '+(i+1);h.titleCol=cols.level||1}
+    sections.push({title,header:h.row,titleRow,titleCol:h.titleCol||cols.level||1,hdr,cols,trades,tagLabel,items:[]});
   });
   sections.forEach((s,i)=>{
     const end=i+1<headers.length?headers[i+1].titleRow-1:maxRow;
@@ -183,6 +190,34 @@ function dateKeyFrom(text,around){
   for(const y of [base.getFullYear()-1,base.getFullYear(),base.getFullYear()+1]){
     const t=new Date(y,mon,day).getTime();if(!best||Math.abs(t-base)<Math.abs(best-base))best=t}
   const d=new Date(best);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+/* a date in a file name: "28 Oct", "28.10.26", "28-10-2026" or "2026-10-28" */
+function fileDateKey(name,around){
+  const n=String(name||'').replace(/\.xlsx?$/i,'');const t=dateKeyFrom(n,around);if(t)return t;
+  let m=/(20\d{2})[-_.](\d{1,2})[-_.](\d{1,2})/.exec(n);if(m&&+m[2]<=12&&+m[3]<=31)return m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');
+  m=/(?:^|\D)(\d{1,2})[-_.](\d{1,2})(?:[-_.](\d{2,4}))?(?:\D|$)/.exec(n);
+  if(m&&+m[1]>=1&&+m[1]<=31&&+m[2]>=1&&+m[2]<=12){
+    if(m[3]){const y=m[3].length===2?2000+ +m[3]:+m[3];return y+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0')}
+    const base=new Date(around||Date.now());let best=null;for(const y of [base.getFullYear()-1,base.getFullYear(),base.getFullYear()+1]){const tt=new Date(y,+m[2]-1,+m[1]).getTime();if(best==null||Math.abs(tt-base)<Math.abs(best-base))best=tt}
+    const d=new Date(best);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+  return null;
+}
+/* tonight's date: after midnight it is still the night that started the evening before */
+function tonightKey(now){const d=new Date(now||Date.now());if(d.getHours()<12)d.setDate(d.getDate()-1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+const keyLabel=k=>{const [y,m,d]=k.split('-').map(Number);return new Date(y,m-1,d).toLocaleDateString('en-GB',{day:'numeric',month:'short'})};
+const keyLong=k=>{const [y,m,d]=k.split('-').map(Number);return new Date(y,m-1,d).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'})};
+/* when the title, the file name and tonight do not agree, ask which night the DABS is for */
+function askNight(seen,def){
+  return new Promise(res=>{
+    const row=(t,k)=>`<div class="seen">${t}: <b>${k?esc(keyLong(k)):'no date found'}</b></div>`;
+    openView('nightAsk',`<h3>Which night?</h3><div class="ndq">
+      <p>The dates on this DABS do not match.</p>
+      ${row('Excel title',seen.title)}${row('File name',seen.file)}${row('Tonight',seen.today)}
+      <label for="nq_date">Load it for the night of<input type="date" id="nq_date" value="${def}" data-title="${seen.title||''}" data-file="${seen.file||''}"></label>
+      <div class="grid2"><button class="btn alt" type="button" id="nqNo">Cancel</button><button class="btn" type="button" id="nqYes">Load</button></div></div>`);
+    $('#nqNo').onclick=()=>{closeSheet();res(null)};
+    $('#nqYes').onclick=()=>{const v=$('#nq_date').value;if(!v){toast('Pick a date');return}closeSheet();res(v)};
+  });
 }
 const docDateKey=(d,around)=>dateKeyFrom(d.sections.map(s=>s.title).join(' '),around);
 const nightDateKey=n=>n.dateKey||dateKeyFrom(n.label,n.loadedAt);
@@ -339,10 +374,16 @@ async function findExistingNight(key){
     if(n)return n}
   return allNights().find(x=>nightDateKey(x)===key)||null;
 }
-async function uploadDabs(f){
+async function uploadDabs(f,opt={}){
   const u8=new Uint8Array(await f.arrayBuffer());const d=await parseDabs(u8,f.name);const b64=b64enc(u8);
   if(b64.length>900000)throw new Error('This file is too large to share (over 650 KB). Remove pictures or extra sheets and try again.');
-  const now=Date.now();const key=docDateKey(d,now);
+  const now=Date.now();
+  const titleKey=docDateKey(d,now),fileKey=fileDateKey(f.name,now),today=tonightKey(now);
+  let key=opt.key||null;
+  if(!key){
+    if(titleKey===today&&(!fileKey||fileKey===today))key=today;
+    else{key=await askNight({title:titleKey,file:fileKey,today},today);if(!key)return}
+  }
   const fileId='f'+hashStr(b64)+u8.length.toString(36);
   if(!navigator.onLine)throw new Error('No signal. Loading a DABS needs a connection; try again near the cabins or on Wi-Fi.');
   const ex=await findExistingNight(key);
@@ -364,7 +405,7 @@ async function uploadDabs(f){
     try{await db.doc(P('dates')+'/'+key).create({nightId:nid,by:authUser.uid,byName:myName(),at:now})}
     catch(e){const again=await findExistingNight(key);if(again){await openNight(again);toast(again.label+' DABS was just loaded by '+(again.createdByName||'a teammate'));return}throw e}
   }
-  const m={fileName:f.name,fileId,dateKey:key||'',label:nightLabel(d,now),loadedAt:now,updatedAt:now,createdBy:authUser.uid,createdByName:myName(),summary:null,items:[]};
+  const m={fileName:f.name,fileId,dateKey:key||'',label:key===titleKey?nightLabel(d,now):keyLabel(key),loadedAt:now,updatedAt:now,createdBy:authUser.uid,createdByName:myName(),summary:null,items:[]};
   await db.doc(P('files')+'/'+fileId).set({b64,fileName:f.name});
   await db.doc(P('nights')+'/'+nid).set(m);
   await openNight(Object.assign({id:nid},m));
@@ -374,7 +415,10 @@ async function uploadDabs(f){
 const normKey=(t,a)=>String(t||'').toUpperCase().replace(/\s+/g,'')+'|'+String(a||'').toLowerCase().replace(/\s+/g,' ').trim();
 function confirmReplace(n,u8,d,fileName,b64,fileId){
   const k=docDateKey(d,n.loadedAt),nk=nightDateKey(n);
-  if(k&&nk&&k!==nk){openSheet(`<h3>Different night</h3><p>This file is for <strong>${esc(nightLabel(d,Date.now()))}</strong>, but the night on screen is <strong>${esc(n.label)}</strong>. Load it as a new night instead.</p><button class="btn" type="button" id="cOk">OK</button>`);$('#cOk').onclick=closeSheet;return}
+  if(k&&nk&&k!==nk&&!n.__dateOk){openSheet(`<h3>Different date</h3><p>This file's title says <strong>${esc(keyLabel(k))}</strong>, but the night on screen is <strong>${esc(n.label)}</strong>.</p><p>If the day shift just put the wrong date on it, you can still use it for ${esc(n.label)}. Otherwise load it as a new night.</p>
+    <div class="grid2"><button class="btn alt" type="button" id="cOk">Cancel</button><button class="btn" type="button" id="cGo">Use for ${esc(n.label)}</button></div>`);
+    $('#cOk').onclick=closeSheet;$('#cGo').onclick=()=>confirmReplace(Object.assign(n,{__dateOk:true}),u8,d,fileName,b64,fileId);return}
+  delete n.__dateOk;
   openSheet(`<h3>Replace the ${esc(n.label)} DABS?</h3>
     <p>The whole team will switch to <strong>${esc(fileName)}</strong>. Statuses, blockers, notes and history are moved to jobs with the same tag and activity. Jobs that are no longer on the new DABS but already have entries are kept as added activities, so nothing entered tonight is lost.</p>
     <div class="grid2"><button class="btn alt" type="button" id="rpNo">Cancel</button><button class="btn danger" type="button" id="rpYes">Replace</button></div>`);
@@ -769,46 +813,74 @@ function subscribeConcerns(){
     concerns=s.docs.map(d=>Object.assign({id:d.id},d.data()));updateConcernBadge();
     if(sheetView==='concerns')renderConcernList()},()=>{});
 }
-const openConcerns=()=>concerns.filter(c=>!c.resolved);
+/* a concern can name several trades; older entries have one "trade" string */
+const cTrades=c=>Array.isArray(c.trades)&&c.trades.length?c.trades:[c.trade||'All'];
+const cTradeLabel=c=>cTrades(c).join(', ');
+const cState=c=>c.archived?'archived':c.resolved?'resolved':'open';
+const openConcerns=()=>concerns.filter(c=>cState(c)==='open');
 function updateConcernBadge(){const b=$('#btnConcerns');if(!b)return;const n=openConcerns().length;b.innerHTML='Concern list'+(n?` <span class="cnt">${n}</span>`:'')}
-function concernTrades(){return ['All',...dabsTrades()]}
+function concernTrades(){return ['All',...dabsTrades().filter(t=>normTrade(t)!=='all')]}
+/* trade picker: "All" or any mix of trades */
+function tradePicker(id,sel){
+  const list=[...new Set([...concernTrades(),...sel.filter(t=>t!=='All')])];
+  return `<fieldset class="mapf"><legend>Affected trade</legend><div class="bchips" id="${id}">${list.map(t=>`<button type="button" class="bchip pick" data-tp="${esc(t)}" aria-pressed="${sel.includes(t)}">${esc(t)}</button>`).join('')}</div>
+    <p class="nc" style="margin:6px 0 0">Pick All, or one or more trades.</p></fieldset>`;
+}
+function bindTradePicker(id,sel){
+  const box=$('#'+id);box.onclick=e=>{const b=e.target.closest('[data-tp]');if(!b)return;const t=b.dataset.tp;
+    if(t==='All'){sel.length=0;sel.push('All')}
+    else{const i=sel.indexOf('All');if(i>=0)sel.splice(i,1);const j=sel.indexOf(t);if(j>=0)sel.splice(j,1);else sel.push(t);if(!sel.length)sel.push('All')}
+    box.querySelectorAll('[data-tp]').forEach(x=>x.setAttribute('aria-pressed',String(sel.includes(x.dataset.tp))))};
+}
+let cnTab='open';
 function openConcernsView(){
+  const pick=['All'];
   openView('concerns',`<h3>Concern list</h3>
-    <p>Concerns, blockers and things that need fixing. Open items carry over to the next night and print in red under the DABS in the Excel export.</p>
+    <p>Concerns, blockers and things that need fixing. Open items carry over to the next night and print in red under the DABS in the Excel export. Resolved and archived items do not.</p>
     ${canWrite?`<form id="cnForm" novalidate class="pplform">
-      <div class="grid2"><label for="cn_type">Type<select id="cn_type">${CTYPES.map(t=>`<option>${t}</option>`).join('')}</select></label>
-      <label for="cn_trade">Affected trade<select id="cn_trade">${concernTrades().map(t=>`<option>${esc(t)}</option>`).join('')}</select></label></div>
+      <label for="cn_type">Type<select id="cn_type">${CTYPES.map(t=>`<option>${t}</option>`).join('')}</select></label>
+      ${tradePicker('cn_trades',pick)}
       <label for="cn_desc">Description<textarea id="cn_desc" rows="3" placeholder="e.g. Scaffold on 1GST1930TY-GL04 not tagged, plating could not start"></textarea></label>
       <p class="err" id="cn_err" hidden></p>
       <button class="btn" type="submit">Add to list</button></form>`:''}
+    <div class="seg cntabs" role="tablist" id="cnTabs"></div>
     <div id="cnList"></div>
     <button class="ghost" type="button" id="cnClose">Close</button>`);
   $('#cnClose').onclick=closeSheet;
+  if(canWrite)bindTradePicker('cn_trades',pick);
   const fm=$('#cnForm');if(fm)fm.onsubmit=async e=>{e.preventDefault();const desc=$('#cn_desc').value.trim();
     if(!desc){const p=$('#cn_err');p.textContent='Write what the concern is.';p.hidden=false;return}
     const id='c'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
-    const body={type:$('#cn_type').value,trade:$('#cn_trade').value,desc,by:authUser.uid,byName:myName(),at:Date.now(),nightLabel:cur?cur.label:'',resolved:false,hist:[]};
-    concerns.unshift(Object.assign({id},body));renderConcernList();updateConcernBadge();$('#cn_desc').value='';$('#cn_err').hidden=true;
+    const trades=[...pick];
+    const body={type:$('#cn_type').value,trades,trade:trades.join(', '),desc,by:authUser.uid,byName:myName(),at:Date.now(),nightLabel:cur?cur.label:'',resolved:false,archived:false,hist:[]};
+    concerns.unshift(Object.assign({id},body));cnTab='open';renderConcernList();updateConcernBadge();$('#cn_desc').value='';$('#cn_err').hidden=true;
+    pick.length=0;pick.push('All');$('#cn_trades').querySelectorAll('[data-tp]').forEach(x=>x.setAttribute('aria-pressed',String(x.dataset.tp==='All')));
     db.doc(P('concerns')+'/'+id).set(body).catch(err=>toast('Not saved ('+(err.code||'error')+')'));toast('Added to the concern list')};
-  $('#panel').onclick=e=>{const b=e.target.closest('[data-cn]');if(!b)return;const c=concerns.find(x=>x.id===b.dataset.c);if(!c)return;concernAction(b.dataset.cn,c)};
+  $('#panel').onclick=e=>{const tb=e.target.closest('[data-cntab]');if(tb){cnTab=tb.dataset.cntab;renderConcernList();return}
+    const b=e.target.closest('[data-cn]');if(!b)return;const c=concerns.find(x=>x.id===b.dataset.c);if(!c)return;concernAction(b.dataset.cn,c)};
   renderConcernList();
 }
 function concernRow(c){
-  const carried=cur&&c.at<cur.loadedAt&&!c.resolved;
-  return `<div class="cn ${c.resolved?'done':''}" id="cn-${c.id}">
-    <div class="cnh"><span class="ctype t-${normTrade(c.type)}">${esc(c.type)}</span><span class="ctrade">${esc(c.trade||'All')}</span>${carried?`<span class="nc">since ${esc(new Date(c.at).toLocaleDateString('en-GB',{day:'numeric',month:'short'}))}</span>`:''}</div>
+  const stt=cState(c);const carried=cur&&c.at<cur.loadedAt&&stt==='open';
+  const btn=(a,t,cls)=>`<button class="link${cls?' '+cls:''}" type="button" data-cn="${a}" data-c="${c.id}">${t}</button>`;
+  return `<div class="cn ${stt!=='open'?'done':''} ${stt==='archived'?'arch':''}" id="cn-${c.id}">
+    <div class="cnh"><span class="ctype t-${normTrade(c.type)}">${esc(c.type)}</span><span class="ctrade">${esc(cTradeLabel(c))}</span>${carried?`<span class="nc">since ${esc(new Date(c.at).toLocaleDateString('en-GB',{day:'numeric',month:'short'}))}</span>`:''}</div>
     <div class="cnd">${esc(c.desc)}</div>
-    <div class="nc">${esc(c.byName||'Someone')} · ${esc(fmtDT(c.at))}${c.editedAt?` · edited by ${esc(c.editedByName||'someone')} ${esc(fmtDT(c.editedAt))}`:''}${c.resolved?` · resolved by ${esc(c.resolvedByName||'someone')} ${esc(fmtDT(c.resolvedAt))}`:''}</div>
-    ${canWrite?`<div class="cnb">${c.resolved?`<button class="link" type="button" data-cn="reopen" data-c="${c.id}">Reopen</button>`
-      :`<button class="link" type="button" data-cn="resolve" data-c="${c.id}">Resolved</button><button class="link" type="button" data-cn="edit" data-c="${c.id}">Edit</button>`}<button class="link danger" type="button" data-cn="del" data-c="${c.id}">Delete</button></div>`:''}
+    <div class="nc">${esc(c.byName||'Someone')} · ${esc(fmtDT(c.at))}${c.editedAt?` · edited by ${esc(c.editedByName||'someone')} ${esc(fmtDT(c.editedAt))}`:''}${c.resolved?` · resolved by ${esc(c.resolvedByName||'someone')} ${esc(fmtDT(c.resolvedAt))}`:''}${c.archived?` · archived by ${esc(c.archivedByName||'someone')} ${esc(fmtDT(c.archivedAt))}`:''}</div>
+    ${canWrite?`<div class="cnb">${stt==='open'?btn('edit','Edit')+btn('resolve','Resolved')+btn('archive','Archived')
+      :stt==='resolved'?btn('reopen','Reopen')+btn('archive','Archived'):btn('restore','Back to open')}${btn('del','Delete','danger')}</div>`:''}
   </div>`;
 }
 function renderConcernList(){
   const el=$('#cnList');if(!el)return;
-  const open=openConcerns();const since=Date.now()-7*864e5;
-  const done=concerns.filter(c=>c.resolved&&(c.resolvedAt||0)>=since);
-  el.innerHTML=`<h4 class="cnhd">Open <span class="nc">${open.length}</span></h4>${open.map(concernRow).join('')||'<p class="nc">Nothing open.</p>'}
-    ${done.length?`<details class="cndone"><summary>Resolved in the last 7 days (${done.length})</summary>${done.map(concernRow).join('')}</details>`:''}`;
+  const open=openConcerns();const since=Date.now()-14*864e5;
+  const done=concerns.filter(c=>cState(c)==='resolved'&&(c.resolvedAt||0)>=since);
+  const arch=concerns.filter(c=>cState(c)==='archived').sort((a,b)=>(b.archivedAt||0)-(a.archivedAt||0));
+  const tabs=[['open','Open',open.length],['resolved','Resolved',done.length],['archived','Archived',arch.length]];
+  const tb=$('#cnTabs');if(tb)tb.innerHTML=tabs.map(([k,t,n])=>`<button type="button" role="tab" data-cntab="${k}" aria-pressed="${cnTab===k}" aria-selected="${cnTab===k}">${t} <span class="nc">${n}</span></button>`).join('');
+  const list=cnTab==='resolved'?done:cnTab==='archived'?arch:open;
+  const empty={open:'Nothing open.',resolved:'Nothing resolved in the last 14 days.',archived:'Nothing archived.'}[cnTab];
+  el.innerHTML=(cnTab==='archived'?'<p class="nc">Archived items are kept for reference. They do not carry over and are not printed in the Excel export.</p>':'')+(list.map(concernRow).join('')||`<p class="nc">${empty}</p>`);
 }
 function concernWarn(c,verb,onYes){
   const mine=authUser&&c.by===authUser.uid;
@@ -820,27 +892,28 @@ function concernWarn(c,verb,onYes){
 }
 function concernAction(act,c){
   const ref=db.doc(P('concerns')+'/'+c.id);const h=x=>[...(c.hist||[]),{at:Date.now(),byName:myName(),ch:x}].slice(-20);
+  const save=(upd,msg,tab)=>{ref.update(upd).catch(e=>toast('Not saved ('+(e.code||'error')+')'));Object.assign(c,upd);if(tab)cnTab=tab;openConcernsView();updateConcernBadge();if(msg)toast(msg)};
   if(act==='del')concernWarn(c,'Delete',async()=>{try{await ref.delete();concerns=concerns.filter(x=>x.id!==c.id);toast('Deleted')}catch(e){toast('Not deleted ('+(e.code||'error')+')')}openConcernsView();updateConcernBadge()});
-  else if(act==='resolve')concernWarn(c,'Resolve',()=>{ref.update({resolved:true,resolvedAt:Date.now(),resolvedBy:authUser.uid,resolvedByName:myName(),hist:h('Resolved')}).catch(e=>toast('Not saved ('+(e.code||'error')+')'));
-    Object.assign(c,{resolved:true,resolvedAt:Date.now(),resolvedByName:myName()});openConcernsView();updateConcernBadge();toast('Marked as resolved')});
-  else if(act==='reopen')concernWarn(c,'Reopen',()=>{ref.update({resolved:false,resolvedAt:null,resolvedByName:'',hist:h('Reopened')}).catch(()=>{});
-    Object.assign(c,{resolved:false});openConcernsView();updateConcernBadge()});
+  else if(act==='resolve')concernWarn(c,'Resolve',()=>save({resolved:true,resolvedAt:Date.now(),resolvedBy:authUser.uid,resolvedByName:myName(),hist:h('Resolved')},'Marked as resolved'));
+  else if(act==='reopen')concernWarn(c,'Reopen',()=>save({resolved:false,resolvedAt:null,resolvedByName:'',hist:h('Reopened')},'Reopened','open'));
+  else if(act==='archive')concernWarn(c,'Archive',()=>save({archived:true,archivedAt:Date.now(),archivedBy:authUser.uid,archivedByName:myName(),hist:h('Archived')},'Archived'));
+  else if(act==='restore')concernWarn(c,'Restore',()=>save({archived:false,archivedAt:null,archivedByName:'',resolved:false,resolvedAt:null,resolvedByName:'',hist:h('Back to open')},'Back on the open list','open'));
   else if(act==='edit')concernWarn(c,'Edit',()=>{
+    const pick=[...cTrades(c)];
     openView('concernEdit',`<h3>Edit ${esc(c.type.toLowerCase())}</h3><form id="ceForm" novalidate class="pplform">
-      <div class="grid2"><label for="ce_type">Type<select id="ce_type">${CTYPES.map(t=>`<option${t===c.type?' selected':''}>${t}</option>`).join('')}</select></label>
-      <label for="ce_trade">Affected trade<select id="ce_trade">${[...new Set([...concernTrades(),c.trade||'All'])].map(t=>`<option${t===(c.trade||'All')?' selected':''}>${esc(t)}</option>`).join('')}</select></label></div>
+      <label for="ce_type">Type<select id="ce_type">${CTYPES.map(t=>`<option${t===c.type?' selected':''}>${t}</option>`).join('')}</select></label>
+      ${tradePicker('ce_trades',pick)}
       <label for="ce_desc">Description<textarea id="ce_desc" rows="4">${esc(c.desc)}</textarea></label>
       <div class="grid2"><button class="btn alt" type="button" id="ceNo">Cancel</button><button class="btn" type="submit">Save</button></div></form>`);
+    bindTradePicker('ce_trades',pick);
     $('#ceNo').onclick=openConcernsView;
     $('#ceForm').onsubmit=e=>{e.preventDefault();const nd=$('#ce_desc').value.trim();if(!nd){toast('Description cannot be empty');return}
-      const upd={type:$('#ce_type').value,trade:$('#ce_trade').value,desc:nd,editedAt:Date.now(),editedByName:myName(),hist:h('Edited (was: '+c.desc.slice(0,80)+')')};
-      ref.update(upd).catch(err=>toast('Not saved ('+(err.code||'error')+')'));Object.assign(c,upd);openConcernsView();toast('Saved')};
+      const trades=[...pick];
+      save({type:$('#ce_type').value,trades,trade:trades.join(', '),desc:nd,editedAt:Date.now(),editedByName:myName(),hist:h('Edited (was: '+c.desc.slice(0,80)+')')},'Saved')};
   });
 }
-function exportConcerns(){
-  const from=cur?cur.loadedAt:0;
-  return concerns.filter(c=>!c.resolved||(c.resolvedAt||0)>=from).sort((a,b)=>a.at-b.at);
-}
+/* the Excel export prints only what is still open */
+function exportConcerns(){return openConcerns().sort((a,b)=>a.at-b.at)}
 
 /* ---------- menu ---------- */
 function openMenu(){
@@ -1005,7 +1078,7 @@ function suggestToday(T){
 function suggestPrev(T){
   const lines=[];const pn=previousNight();const from=pn?pn.loadedAt:0;
   const ms=briefMembers(T);
-  for(const c of concerns)if((c.trade||'All')==='All'||ms.includes(c.trade)){
+  for(const c of concerns){if(c.archived)continue;const ts=cTrades(c);if(!(ts.includes('All')||ts.some(t=>ms.includes(t))))continue;
     if(!c.resolved)lines.push(c.desc);
     else if((c.resolvedAt||0)>=from)lines.push('Resolved: '+c.desc)}
   return lines.join('\n');
@@ -1448,7 +1521,7 @@ function renderPhotoReview(){
     const b=$('#phYes');b.disabled=true;b.textContent='Loading…';
     try{const u8=await buildDabsXlsx(photoSecs);const name='DABS '+label+' Night (from screenshot).xlsx';
       const file=new File([u8],name,{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
-      closeSheet();toast('Checking '+name+'…');await uploadDabs(file)}
+      closeSheet();toast('Checking '+name+'…');await uploadDabs(file,{key:d})}
     catch(e){b.disabled=false;b.textContent='Load this DABS';err.textContent=e.message||String(e);err.hidden=false}};
 }
 
@@ -1861,14 +1934,14 @@ async function buildXlsx(){
     const fT=addFont({b:true,sz:szB+2,color:'FFC00000'}),fH=addFont({b:true,sz:szH,color:'FFC00000'}),fR=addFont({sz:szB,color:'FFC00000'});
     const xT=addXf(fT),xH=addXf(fH,{border,wrap:true}),xR=addXf(fR,{border,wrap:true,v:'top'});
     let r=maxRow+3;
-    setText(cellEl(r,2),'CONCERN LIST · open items carried over and tonight\'s concerns ('+cl.filter(c=>!c.resolved).length+' open)',xT);
+    setText(cellEl(r,2),'CONCERN LIST · open items carried over and tonight\'s concerns ('+cl.length+' open)',xT);
     r+=2;const r0=r;
     const cols=[[2,'Type'],[3,'Trade'],[4,'Entered by'],[5,'Date / time'],[6,'Description'],[11,'Status']];
     let mc=kid(wroot,'mergeCells');if(!mc){mc=E(sx,'mergeCells',{count:'0'});insertOrdered(wroot,mc)}
     const merge=ref=>{mc.appendChild(E(sx,'mergeCell',{ref}));mc.setAttribute('count',String(mc.children.length))};
     for(const [c,h] of cols)setText(cellEl(r,c),h,xH);for(let c=7;c<=10;c++)setText(cellEl(r,c),'',xH);merge('F'+r+':J'+r);
     for(const c of cl){r++;
-      const vals={2:c.type,3:c.trade||'All',4:c.byName||'',5:fmtDT(c.at),6:c.desc,11:c.resolved?'Resolved '+fmtDT(c.resolvedAt)+(c.resolvedByName?' by '+c.resolvedByName:''):(cur&&c.at<cur.loadedAt?'Open (carried over)':'Open')};
+      const vals={2:c.type,3:cTradeLabel(c),4:c.byName||'',5:fmtDT(c.at),6:c.desc,11:(cur&&c.at<cur.loadedAt?'Open (carried over)':'Open')};
       for(const k in vals)setText(cellEl(r,+k),vals[k],xR);for(let k=7;k<=10;k++)setText(cellEl(r,k),'',xR);merge('F'+r+':J'+r);
       const k=11/szB;   // bigger text fits fewer characters per line
       const lines=Math.max(1,Math.ceil(String(c.desc).length/(85*k)),String(c.desc).split('\n').length,Math.ceil(String(vals[11]).length/(55*k)),Math.ceil(String(vals[2]||'').length/(8*k)),Math.ceil(String(vals[3]||'').length/(12*k)),Math.ceil(String(vals[4]||'').length/(12*k)),Math.ceil(String(vals[5]||'').length/(24*k)));
