@@ -2,7 +2,7 @@ import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,sendPasswordResetEmail,sendEmailVerification,updateProfile,signOut,GoogleAuthProvider,signInWithPopup} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {initializeFirestore,persistentLocalCache,persistentMultipleTabManager,doc as fdoc,collection as fcol,getDoc,getDocs,setDoc,updateDoc,deleteDoc,onSnapshot as fsnap,query as fquery,orderBy as forder,limit as flimit} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import {firebaseConfig,OWNER_EMAIL,ENV} from './firebase-config.js';
-const APP_VERSION='2.0.11220227';
+const APP_VERSION='2.0.11220239';
 
 
 const NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
@@ -2064,6 +2064,11 @@ function insertStyleOrdered(root,el){
   const after=Array.from(root.children).find(c=>ORDER.indexOf(c.localName)>i);
   root.insertBefore(el,after||null);
 }
+function remarkJoin(day,night){
+  const d=String(day||'').trim(),n=String(night||'').trim();
+  const tag=(p,t)=>t?(new RegExp('^'+p+'\\s*:','i').test(t)?t:p+': '+t):'';
+  return [tag('DS',d),tag('NS',n)].filter(Boolean).join(' | ');
+}
 async function buildXlsx(){
   const zip=await JSZip.loadAsync(bytes);
   const {path}=await sheetPaths(zip);
@@ -2135,7 +2140,7 @@ async function buildXlsx(){
       const s=st[it.id];
       if(s&&s.rm){   // removed on the night: say so on its row
         const base=getS(it.row,sec.cols.remark)??getS(it.row,sec.cols.act)??0;
-        setText(cellEl(it.row,sec.cols.remark),(it.dayRemark?it.dayRemark+' | ':'')+'REMOVED on the night'+(s.rm.byName?' by '+s.rm.byName:''),wrapStyle(base));continue}
+        setText(cellEl(it.row,sec.cols.remark),remarkJoin(it.dayRemark,'REMOVED on the night'+(s.rm.byName?' by '+s.rm.byName:'')),wrapStyle(base));continue}
       if(it._o){   // edited on the night: the row shows the new text, and trades taken off lose their mark
         for(const [k,c] of [['tag',sec.cols.tag],['act',sec.cols.act],['level',sec.cols.level]])if(c&&it[k]!==it._o[k])setText(cellEl(it.row,c),it[k],getS(it.row,c)??0);
         for(const t of it._o.trades)if(!allCols(it).includes(t.col))setText(cellEl(it.row,t.col),'',getS(it.row,t.col)??0)}
@@ -2145,10 +2150,9 @@ async function buildXlsx(){
         setText(cellEl(it.row,col),v,styled(base,v));
       }
       const add=remarkText(s);
-      if(add){
-        const text=it.dayRemark?it.dayRemark+' | '+add:add;
+      if(add||it.dayRemark){   // DS: what the day shift wrote · NS: what the night shift added
         const base=getS(it.row,sec.cols.remark)??getS(it.row,sec.cols.act)??0;
-        setText(cellEl(it.row,sec.cols.remark),text,wrapStyle(base));
+        setText(cellEl(it.row,sec.cols.remark),remarkJoin(it.dayRemark,add),wrapStyle(base));
       }
     }
   }
@@ -2172,7 +2176,7 @@ async function buildXlsx(){
         let v='';
         if(c===sec.cols.level)v=it.level;else if(c===sec.cols.shift)v=it.shift;else if(c===sec.cols.tag)v=it.tag;
         else if(c===sec.cols.act)v=it.act;else if(c===sec.cols.bh)v='';
-        else if(c===sec.cols.remark){setText(cellEl(r,c),remarkText(s),wrapStyle(base));continue}
+        else if(c===sec.cols.remark){setText(cellEl(r,c),remarkJoin('',remarkText(s)),wrapStyle(base));continue}
         if(allCols(it).includes(c)){const sv=s.status[c]||'NOT DONE';setText(cellEl(r,c),sv,styled(base,sv));continue}
         setText(cellEl(r,c),v,base);
       }
