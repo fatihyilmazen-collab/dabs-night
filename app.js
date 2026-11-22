@@ -2,7 +2,7 @@ import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,sendPasswordResetEmail,sendEmailVerification,updateProfile,signOut,GoogleAuthProvider,signInWithPopup} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {initializeFirestore,persistentLocalCache,persistentMultipleTabManager,doc as fdoc,collection as fcol,getDoc,getDocs,setDoc,updateDoc,deleteDoc,onSnapshot as fsnap,query as fquery,orderBy as forder,limit as flimit} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import {firebaseConfig,OWNER_EMAIL,ENV} from './firebase-config.js';
-const APP_VERSION='2.0.11220201';
+const APP_VERSION='2.0.11220212';
 
 
 const NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
@@ -61,7 +61,7 @@ function rowStatus(it){
   if(vals.every(v=>v===null))return null;
   return 'NOT DONE';
 }
-const allCols=it=>[...it.trades.map(t=>t.col),...(st[it.id]?.extra||[])];
+const allCols=it=>[...new Set([...it.trades.map(t=>t.col),...(st[it.id]?.extra||[])])];   // a trade counts once, however it was added
 
 /* ---------- xlsx reading ---------- */
 async function sheetPaths(zip){
