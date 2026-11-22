@@ -298,6 +298,27 @@ select{border:1px solid var(--line);background:var(--surface-2);border-radius:8p
 .ndq input[type=date]{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:10px;font-size:16px;color:var(--fg)}
 .hist .hrel{margin:8px 0 2px;font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 .hist .hn{display:block;font-size:12px;color:var(--muted);font-style:italic}
+
+/* fill from field sheet */
+.flist{display:flex;flex-direction:column;gap:6px}
+.flrow{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-left:4px solid var(--ok);border-radius:8px;padding:8px 10px;background:var(--surface-2)}
+.flrow.conf{border-left-color:var(--accent)}
+.flrow input{width:20px;height:20px;flex:none;margin-top:2px}
+.flb{display:flex;flex-direction:column;gap:4px;min-width:0;font-size:14px}
+.flcs{display:flex;flex-wrap:wrap;gap:4px 12px}
+.flc{font-size:13px}.flc .hs{font-size:11px;font-weight:800}
+.hs.ok{color:var(--ok)}.hs.go{color:var(--go)}.hs.no{color:var(--no)}.hs.un{color:var(--muted)}
+.fln{font-size:13px;color:var(--fg);white-space:pre-wrap}
+.flw{font-size:12px;font-weight:700;color:var(--accent)}
+.flmiss{margin:6px 0;padding-left:18px;font-size:13px;display:flex;flex-direction:column;gap:4px}
+.fln textarea{width:100%;margin-top:3px;border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:6px;font:inherit;font-size:13.5px;color:var(--fg);resize:vertical}
+.flrow{min-width:0}
+.flb{flex:1 1 auto;min-width:0;overflow:hidden}
+.flb .phcrop{max-width:100%}
+.fln{display:block}
+.fln textarea{box-sizing:border-box;max-width:100%}
+.panel label.flrow{flex-direction:row}
+.flrow .flb{width:0;flex:1 1 0}
 </style>
 </head>
 <body>
@@ -337,6 +358,6 @@ select{border:1px solid var(--line);background:var(--surface-2);border-radius:8p
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(function(){});</script>
-<script type="module" src="app.js?v=2.0.11080245"></script>
+<script type="module" src="app.js?v=2.0.11220130"></script>
 </body>
 </html>

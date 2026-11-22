@@ -2,7 +2,7 @@ import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,sendPasswordResetEmail,sendEmailVerification,updateProfile,signOut,GoogleAuthProvider,signInWithPopup} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {initializeFirestore,persistentLocalCache,persistentMultipleTabManager,doc as fdoc,collection as fcol,getDoc,getDocs,setDoc,updateDoc,deleteDoc,onSnapshot as fsnap,query as fquery,orderBy as forder,limit as flimit} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import {firebaseConfig,OWNER_EMAIL,ENV} from './firebase-config.js';
-const APP_VERSION='2.0.11080245';
+const APP_VERSION='2.0.11220130';
 
 
 const NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
@@ -142,11 +142,11 @@ async function parseDabs(u8,fileName){
     for(let r=s.header+1;r<=end;r++){
       const act=txt(own(r,s.cols.act)),tag=txt(own(r,s.cols.tag));
       if(!act&&!tag)continue;
-      const trades=[];const pre={};
-      for(const t of s.trades){const v=txt(own(r,t.col)).toUpperCase();
+      const trades=[];const pre={};const raw={};
+      for(const t of s.trades){raw[t.col]=txt(own(r,t.col));const v=normStatusWord(raw[t.col]);
         if(v==='X'||STATUSES.includes(v)){trades.push(t);if(STATUSES.includes(v))pre[t.col]=v}}
       s.items.push({id:i+'-'+r,row:r,sec:i,level:fmtLevel(s.cols.level?own(r,s.cols.level):''),
-        shift:txt(own(r,s.cols.shift)),bh:txt(mv(r,s.cols.bh)),tag,act,dayRemark:txt(own(r,s.cols.remark)),trades,pre});
+        shift:txt(own(r,s.cols.shift)),bh:txt(mv(r,s.cols.bh)),tag,act,dayRemark:txt(own(r,s.cols.remark)),trades,pre,raw});
     }
   });
   const shortName=t=>t.replace(/^dabs\s*/i,'').replace(/\s+\d.*$/,'').trim()||t;
@@ -931,6 +931,7 @@ function openMenu(){
     ${it('mConcerns','Concern list',openConcerns().length+' open')}
     ${it('mHc','Headcount',cur&&cur.headcount?'Added for '+cur.label+' · prints under the report':'Upload tonight\'s headcount picture',!!cur)}
     ${it('mBrief','Daily Activity Briefing','Word documents for each trade',!!doc)}
+    ${it('mFill','Fill from field sheet','Load the DABS the team filled in (Excel or pictures) to set Done / Ongoing / Not done and remarks',!!cur&&canWrite)}
     ${it('mPeople','Personel',peopleList.length+' people · edit names and roles')}
     ${it('mReplace','Replace tonight\'s DABS','Load a corrected file for '+(cur?cur.label:''),isAdmin&&!!cur)}
     ${it('mSettings','Settings','Briefing details and sign-in crafts',isAdmin)}
@@ -944,7 +945,7 @@ function openMenu(){
       <p><strong>Android (Chrome):</strong> menu ⋮ → Install app.<br><strong>iPhone (Safari):</strong> Share button → Add to Home Screen.</p></div>`}
     <button class="ghost" type="button" id="mClose">Close</button>`);
   const on=(id,f)=>{const b=$('#'+id);if(b)b.onclick=f};
-  on('mClose',closeSheet);on('mSearch',openSearch);on('mArchive',openArchive);on('mConcerns',openConcernsView);on('mBrief',openBriefing);on('mHc',openHeadcount);on('mPeople',openPeople);
+  on('mClose',closeSheet);on('mSearch',openSearch);on('mArchive',openArchive);on('mConcerns',openConcernsView);on('mBrief',openBriefing);on('mHc',openHeadcount);on('mPeople',openPeople);on('mFill',openFill);
   on('mSettings',openSettings);on('mTeam',openTeam);on('mCopy',copyLiveToTest);on('mFromTest',copyTestSetup);on('mReplace',()=>{closeSheet();$('#replaceInput').click()});
   on('signOut',async()=>{closeSheet();await fbSignOut()});
   on('doInstall',async()=>{try{installPrompt.prompt();await installPrompt.userChoice}catch(e){}installPrompt=null;openMenu()});
@@ -1315,7 +1316,7 @@ async function prepareImage(file){
   for(const [x,runs] of vCols)for(const [a,b] of runs)for(let y=a;y<b;y++){white(x,y)}
   const cleanDark=new Uint8Array(W*H);for(let i=0,j=0;i<clean.length;i+=4,j++){const l=0.299*clean[i]+0.587*clean[i+1]+0.114*clean[i+2];cleanDark[j]=l<150?1:0}
   cx.putImageData(new ImageData(clean,W,H),0,0);
-  return {canvas:cv,orig,W,H,hLines,vLines,rowH,cleanDark};
+  return {canvas:cv,orig,W,H,hLines,vLines,rowH,cleanDark,px};
 }
 function groupLines(keys,runsOf,axis){
   const out=[];let cur=null;
@@ -1363,8 +1364,13 @@ function lev(a,b){const d=Array.from({length:a.length+1},(_,i)=>[i]);for(let j=1
 /* words + grid → sections of rows. Each DABS table is found from its "Activity Description" header,
    so Excel's own gridlines, row numbers and column letters around it do not matter. */
 function buildSections(prep,words){
-  const {hLines,vLines,rowH,cleanDark,W}=prep;
-  const txt=ws=>ws.slice().sort((a,b)=>a.x0-b.x0).map(w=>w.text).join(' ').replace(/\s+/g,' ').trim();
+  const {hLines,vLines,rowH,cleanDark,W,px}=prep;
+  // the fill colour of a cell, ignoring its text: green = done or ongoing, red = not done
+  const fillOf=(x1,x2,y1,y2)=>{let r=0,g=0,b=0,n=0;if(!px)return '';for(let y=y1;y<y2;y+=2)for(let x=x1;x<x2;x+=2){const k=(y*W+x)*4;const l=0.299*px[k]+0.587*px[k+1]+0.114*px[k+2];if(l<150)continue;r+=px[k];g+=px[k+1];b+=px[k+2];n++}
+    if(!n)return '';r/=n;g/=n;b/=n;if(g>r+18&&g>b+8)return 'green';if(r>g+25&&r>b+15)return 'red';return ''};
+  const txt=ws=>{const ls=[];for(const w of ws.slice().sort((a,b)=>(a.y0+a.y1)-(b.y0+b.y1))){const y=(w.y0+w.y1)/2,h=Math.max(6,w.y1-w.y0);
+      const l=ls.find(l=>Math.abs(l.y-y)<h*0.6);if(l)l.ws.push(w);else ls.push({y,ws:[w]})}
+    return ls.sort((a,b)=>a.y-b.y).map(l=>l.ws.sort((a,b)=>a.x0-b.x0).map(w=>w.text).join(' ')).join(' ').replace(/\s+/g,' ').replace(/^[‘’'`"“”.,~_\s]+|[‘’'`"“”_~\s]+$/g,'').trim()};
   const conf=ws=>ws.length?Math.min(...ws.map(w=>w.conf)):100;
   const cy=w=>(w.y0+w.y1)/2,cxm=w=>(w.x0+w.x1)/2;
   const heads=words.filter(w=>/^activ/i.test(w.text)).sort((a,b)=>cy(a)-cy(b)).filter((w,i,a)=>i===0||cy(w)-cy(a[i-1])>rowH);
@@ -1389,7 +1395,7 @@ function buildSections(prep,words){
     if(!top){const st=[];for(const v of vLines)for(const [a,b] of v.runs||[])if(a<hy&&b>hy&&v.x>=xa-3&&v.x<=xb+3)st.push(a);st.sort((a,b)=>a-b);top={y:st.length?st[Math.floor(st.length/2)]:hy-rowH/2}}
     const nextHead=heads[hi+1]?cy(heads[hi+1])-rowH*2.5:Infinity;
     const lines=[top.y,...hl.filter(l=>l.y>hy+2&&l.y<nextHead).map(l=>l.y)];
-    const bands=[];for(let i=1;i<lines.length;i++){if(lines[i]-lines[i-1]>rowH*2.6)break;if(lines[i]-lines[i-1]>4)bands.push([lines[i-1],lines[i]])}
+    const bands=[];for(let i=1;i<lines.length;i++){if(lines[i]-lines[i-1]>rowH*5.5)break;if(lines[i]-lines[i-1]>4)bands.push([lines[i-1],lines[i]])}
     if(bands.length<2)return;
     const ccol=w=>{for(let i=0;i<ncol;i++)if(w.x0+2>=xs[i]-3&&w.x0<xs[i+1]-2)return i;const c=cxm(w);for(let i=0;i<ncol;i++)if(c>xs[i]&&c<xs[i+1])return i;return -1};
     const grid=bands.map(()=>Array.from({length:ncol},()=>[]));
@@ -1424,7 +1430,12 @@ function buildSections(prep,words){
       for(const t of tradeCols){const x1=Math.round(xs[t.c])+4,x2=Math.round(xs[t.c+1])-4,y1=Math.round(ya)+4,y2=Math.round(yb)-4;let n=0,tot=0;
         for(let y=y1;y<y2;y++)for(let x=x1;x<x2;x++){tot++;n+=cleanDark[y*W+x]}
         const ct=txt(g[t.c]||[]).toUpperCase();
-        if(n>Math.max(6,tot*0.006))marks[t.name]=/NOT/.test(ct)?'NOT DONE':/ONGO/.test(ct)?'ONGOING':/DONE/.test(ct)?'DONE':'X'}
+        const word=/NOT/.test(ct)?'NOT DONE':/ONGO|GOING/.test(ct)?'ONGOING':/DON|ONE$/.test(ct)?'DONE':'';
+        const fill=fillOf(x1,x2,y1,y2);
+        if(word)marks[t.name]=word;
+        else if(fill==='red')marks[t.name]='NOT DONE?';
+        else if(fill==='green')marks[t.name]='DONE?';    // coloured but the word was not readable
+        else if(n>Math.max(6,tot*0.006))marks[t.name]='X'}
       let lvl=fixLevel(txt(g[levelC]||[]))||'';
       // DABS writes positive levels with a + ("+16.00"); an unsigned non-zero number is a minus the reader missed
       {const raw=txt(g[levelC]||[]);if(lvl&&parseFloat(lvl)!==0&&!/[+\-—–~]/.test(raw))lvl='-'+lvl.replace(/^\+/,'')}
@@ -1674,6 +1685,134 @@ function hcSave(h){
   if(!cur||!canWrite)return;const id=cur.id;cur.headcount=h;
   db.doc(P('nights')+'/'+id).merge({headcount:h}).then(()=>toast(h?'Headcount saved':'Headcount removed')).catch(e=>toast('Not saved ('+(e.code||'error')+')'));
   openHeadcount();
+}
+/* ---------- fill tonight's statuses from the DABS the team filled in (Excel or screenshots) ---------- */
+let fillPlan=null;
+function normStatusWord(v){
+  const s=String(v||'').toUpperCase().replace(/[^A-Z]/g,'');
+  if(!s)return '';
+  if(/^(NOTDONE|NOTSTARTED|ND|NOTCOMPLETE[D]?|INCOMPLETE)$/.test(s)||/^NOT/.test(s))return 'NOT DONE';
+  if(/^(ONGOING|ONGO|INPROGRESS|STARTED|PARTIAL|PART|WIP)/.test(s))return 'ONGOING';
+  if(/^(DONE|COMPLETE|COMPLETED|FINISHED|YES|OK)$/.test(s)||/^DON/.test(s))return 'DONE';
+  if(s==='X')return 'X';
+  return '';
+}
+const fNormTag=t=>String(t||'').toUpperCase().replace(/[^A-Z0-9&]/g,'');
+const fNormAct=a=>String(a||'').toLowerCase().replace(/^p\d\s*:\s*/,'').replace(/[^a-z0-9]+/g,' ').trim();
+const fNormRem=r=>String(r||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+
+/* the filled sheet, read into one shape: sections of rows with trade marks and a remark */
+async function readFilledXlsx(f){
+  const u8=new Uint8Array(await f.arrayBuffer());const d=await parseDabs(u8,f.name);
+  // statuses as the team wrote them, read from the cells again so "Not Done " or "Completed" also count
+  return {title:d.sections.map(s=>s.title).join(' '),secs:d.sections.map(s=>({title:s.title,rows:s.items.map(it=>{
+    const marks={};for(const t of s.trades)if(it.pre[t.col])marks[t.name]=it.pre[t.col];else if(it.trades.some(x=>x.col===t.col))marks[t.name]='X';
+    for(const t of s.trades){const raw=it.raw&&it.raw[t.col];const v=normStatusWord(raw);if(v&&v!=='X')marks[t.name]=v}
+    return {tag:it.tag,act:it.act,level:it.level,marks,remark:it.dayRemark||''}})}))};
+}
+async function readFilledImages(files,progress){
+  const secs=[];
+  for(let i=0;i<files.length;i++){const s=await readScreenshot(files[i],t=>progress((files.length>1?`Picture ${i+1}/${files.length}: `:'')+t));
+    for(const x of s)secs.push({title:x.title,rows:x.rows.map(r=>({tag:r.tag,act:r.act,level:r.level,marks:r.marks,remark:r.remark,crop:r.crop,unsure:!r.tagOk||r.tagConf<55}))})}
+  return {title:secs.map(s=>s.title).join(' '),secs,fromPicture:true};
+}
+/* match each filled row to a job on tonight's DABS */
+const tradeKey=n=>String(n||'').toLowerCase().replace(/[^a-z]/g,'');
+function sameTrade(a,b){const x=tradeKey(a),y=tradeKey(b);if(!x||!y)return false;if(normTrade(a)===normTrade(b)||x===y)return true;
+  if(x.length>=5&&y.length>=5&&(x.startsWith(y.slice(0,6))||y.startsWith(x.slice(0,6))))return true;return lev(x,y)<=2}
+function similar(a,b){a=fNormRem(a);b=fNormRem(b);if(!a||!b)return false;if(a===b||b.includes(a))return true;const L=Math.max(a.length,b.length);return L>8&&lev(a.slice(0,200),b.slice(0,200))/L<0.25}
+function matchFilled(filled){
+  const items=allItems();const used=new Set();const out=[],missing=[];
+  const tradeCol=(it,name)=>{
+    const own=allCols(it).find(c=>sameTrade(tradeLabel(it,c),name));if(own!=null)return {col:own,extra:false};
+    const sec=doc.sections[it.sec];const t=sec&&sec.trades.find(x=>sameTrade(x.name,name));return t?{col:t.col,extra:true}:null};
+  const rows=[];filled.secs.forEach((s,si)=>s.rows.forEach((r,ri)=>rows.push(Object.assign({si,ri},r))));
+  // 1) exact tag and activity, 2) the only job with that tag, 3) a tag with a misread letter or two
+  for(const r of rows){
+    const tg=fNormTag(r.tag),ac=fNormAct(r.act);const cand=items.filter(it=>!used.has(it.id));
+    let hit=cand.find(it=>fNormTag(it.tag)===tg&&fNormAct(it.act)===ac),how='exact';
+    if(!hit&&tg){const same=cand.filter(it=>fNormTag(it.tag)===tg);if(same.length===1)hit=same[0];
+      else if(same.length>1)hit=same.find(it=>fNormAct(it.act).includes(ac)||ac.includes(fNormAct(it.act)))}
+    if(!hit&&tg&&filled.fromPicture){let best=null,bd=99;
+      for(const it of cand){const d=lev(fNormTag(it.tag),tg);const da=lev(fNormAct(it.act),ac);if(d<=3&&da<=Math.max(3,ac.length/3)&&d+da<bd){bd=d+da;best=it}}
+      if(best){hit=best;how='close'}}
+    if(hit){used.add(hit.id);r.hit=hit;r.how=how}
+  }
+  // 4) a row still unknown between two matched rows of the same table is the job between them
+  if(filled.fromPicture){
+    const order=items.map(it=>it.id);
+    rows.forEach((r,i)=>{if(r.hit)return;const prev=rows[i-1],next=rows[i+1];
+      const pi=prev&&prev.hit&&prev.si===r.si?order.indexOf(prev.hit.id):-1,ni=next&&next.hit&&next.si===r.si?order.indexOf(next.hit.id):-1;
+      let k=-1;if(pi>=0&&(ni<0||ni===pi+2))k=pi+1;else if(ni>0&&pi<0)k=ni-1;
+      const it=k>=0&&items[k];if(it&&!used.has(it.id)&&(pi<0||items[pi].sec===it.sec)){used.add(it.id);r.hit=it;r.how='order'}});
+  }
+  for(const r of rows){
+    const hit=r.hit;
+    if(!hit){if(Object.values(r.marks).some(v=>v&&v!=='X')||r.remark)missing.push(r);continue}
+    const s0=st[hit.id]||{status:{},note:'',extra:[]};
+    const changes=[];let guess=false;
+    for(const [name,v0] of Object.entries(r.marks)){if(!v0||v0==='X')continue;const v=v0.replace('?','');if(/\?/.test(v0))guess=true;
+      const tc=tradeCol(hit,name);if(!tc)continue;
+      const now=s0.status[tc.col]||null;if(now===v)continue;
+      changes.push({col:tc.col,extra:tc.extra,name:tradeLabel(hit,tc.col)||name,from:now,to:v,guess:/\?/.test(v0)})}
+    let note=null;const rem=String(r.remark||'').trim();
+    if(rem&&!similar(rem,hit.dayRemark)&&!similar(rem,s0.note))note=rem;
+    if(!changes.length&&!note)continue;
+    const other=s0.by&&authUser&&s0.by!==authUser.uid;
+    out.push({id:hit.id,tag:hit.tag,act:hit.act,changes,note,oldNote:s0.note||'',byName:other?s0.byName:'',crop:r.crop,
+      unsure:r.how!=='exact'&&fNormTag(hit.tag)!==fNormTag(r.tag),guess,conflict:changes.some(c=>c.from&&c.from!==c.to),on:true});
+  }
+  return {rows:out,missing,total:rows.length};
+}
+function openFill(){
+  if(!cur||!doc){toast('Open the night first');return}
+  if(!canWrite){toast('View only: ask the night shift lead for Contributor access');return}
+  openView('fill',`<h3>Fill from field sheet</h3>
+    <p>Choose the DABS the team filled in: the Excel file, or one or more screenshots of it. Done / Ongoing / Not done and the remarks are matched to tonight's jobs on <strong>${esc(cur.label)}</strong>. You check the changes before anything is saved.</p>
+    <button class="btn" type="button" id="flPick">Choose Excel or pictures</button>
+    <input type="file" id="flFile" accept=".xlsx,.xlsm,image/*" multiple hidden>
+    <button class="ghost" type="button" id="flClose">Close</button>`);
+  $('#flClose').onclick=closeSheet;$('#flPick').onclick=()=>$('#flFile').click();
+  $('#flFile').onchange=async e=>{const fs=[...e.target.files];e.target.value='';if(!fs.length)return;
+    const imgs=fs.filter(x=>/^image\//.test(x.type)||/\.(png|jpe?g|webp|heic)$/i.test(x.name));
+    openView('fillRead',`<h3>Reading the sheet</h3><p id="flMsg">Preparing…</p><button class="ghost" type="button" id="flCancel">Cancel</button>`);
+    $('#flCancel').onclick=openFill;
+    try{const filled=imgs.length?await readFilledImages(imgs,t=>{const m=$('#flMsg');if(m)m.textContent=t}):await readFilledXlsx(fs[0]);
+      window.__fillDebug=filled;if(sheetView!=='fillRead')return;
+      if(!filled.secs.some(s=>s.rows.length))throw new Error('No DABS table was found in this '+(imgs.length?'picture':'file')+'.');
+      fillPlan=Object.assign(matchFilled(filled),{titleKey:dateKeyFrom(filled.title,Date.now()),src:imgs.length?imgs.length+' picture'+(imgs.length>1?'s':''):fs[0].name});
+      renderFill()}
+    catch(err){if(sheetView!=='fillRead')return;openView('fillErr',`<h3>Could not read it</h3><p class="err">${esc(err.message||'Unknown error')}</p><button class="btn" type="button" id="feOk">Back</button>`);$('#feOk').onclick=openFill}};
+}
+function renderFill(){
+  const p=fillPlan;const nk=nightDateKey(cur);
+  const tone=v=>v==='DONE'?'ok':v==='ONGOING'?'go':v==='NOT DONE'?'no':'un';
+  const ch=c=>`<span class="flc"><b>${esc(c.name)}</b> ${c.from?`<span class="hs ${tone(c.from)}">${esc(c.from)}</span> → `:''}<span class="hs ${tone(c.to)}">${esc(c.to)}${c.guess?' ?':''}</span></span>`;
+  const n=p.rows.filter(r=>r.on).length;
+  openView('fillRev',`<h3>Check before filling</h3>
+    <p class="nc">${esc(p.src)} → <strong>${esc(cur.label)}</strong> · ${p.total} rows read · ${p.rows.length} jobs to update</p>
+    ${p.titleKey&&nk&&p.titleKey!==nk?`<p class="err">The sheet's title says <strong>${esc(keyLabel(p.titleKey))}</strong>, but the night on screen is <strong>${esc(cur.label)}</strong>. Make sure it is the right sheet.</p>`:''}
+    ${p.rows.some(r=>r.conflict)?`<p class="phwarn-chip">Rows marked "changes an entry" already have a different status in the app. Untick them to keep what is there.</p>`:''}
+    <div class="flist">${p.rows.map((r,i)=>`<label class="flrow${r.conflict?' conf':''}${r.unsure?' unsure':''}">
+      <input type="checkbox" data-fl="${i}"${r.on?' checked':''}>
+      <span class="flb"><strong>${esc(r.tag||'-')}</strong> <span class="nc">${esc(r.act)}</span>
+        ${r.crop?`<span class="phcrop"><img src="${r.crop}" alt="Row as read from the picture"></span>`:''}
+        <span class="flcs">${r.changes.map(ch).join('')}</span>
+        ${r.note!=null?`<span class="fln">Note${r.oldNote?' <span class="nc">(added under the existing note)</span>':''}<textarea rows="2" data-fln="${i}" aria-label="Note for ${esc(r.tag||r.act)}">${esc(r.note)}</textarea></span>`:''}
+        ${r.conflict?`<span class="flw">Changes an entry${r.byName?' by '+esc(r.byName):''}</span>`:''}${r.unsure?'<span class="flw">Tag read differently, check it is the same job</span>':''}${r.guess?'<span class="flw">"?" = the word was not readable, status taken from the cell colour</span>':''}</span></label>`).join('')||'<p>Everything on the sheet is already in the app.</p>'}</div>
+    ${p.missing.length?`<details class="phall"><summary>${p.missing.length} filled row${p.missing.length>1?'s':''} not found tonight</summary><ul class="flmiss">${p.missing.map(r=>`<li><strong>${esc(r.tag||'-')}</strong> · ${esc(r.act)} · ${esc(Object.entries(r.marks).filter(([k,v])=>v&&v!=='X').map(([k,v])=>k+' '+v).join(', '))}${r.remark?' · '+esc(r.remark):''}</li>`).join('')}</ul><p class="nc">Add these with "+ Add activity" if they were extra work.</p></details>`:''}
+    <div class="grid2"><button class="btn alt" type="button" id="frNo">Cancel</button><button class="btn" type="button" id="frYes"${n?'':' disabled'}>Fill ${n} job${n===1?'':'s'}</button></div>`);
+  $('#frNo').onclick=closeSheet;
+  $('#panel').oninput=e=>{const t=e.target.closest('[data-fln]');if(t)p.rows[+t.dataset.fln].note=t.value};
+  $('#panel').onclick=e=>{if(e.target.closest('textarea'))e.preventDefault()};
+  $('#panel').onchange=e=>{const c=e.target.closest('[data-fl]');if(!c)return;p.rows[+c.dataset.fl].on=c.checked;const k=p.rows.filter(r=>r.on).length;const b=$('#frYes');b.textContent=`Fill ${k} job${k===1?'':'s'}`;b.disabled=!k};
+  $('#frYes').onclick=()=>{let k=0;
+    for(const r of p.rows){if(!r.on)continue;const s=st[r.id];if(!s)continue;
+      for(const c of r.changes){if(c.extra&&!s.extra.includes(c.col))s.extra.push(c.col);s.status[c.col]=c.to}
+      const nt=String(r.note||'').trim();
+      if(nt){s.note=s.note?s.note.replace(/\s+$/,'')+'\n'+nt:nt;s.open=true}
+      rerenderCard(r.id);writeItem(r.id);k++}
+    closeSheet();renderTop();toast(k+' job'+(k===1?'':'s')+' filled from the field sheet')};
 }
 /* ---------- events, with a check before changing someone else's entry or a DONE job ---------- */
 const okUntil={};   // after confirming once, further edits to the same job go through for a short while
