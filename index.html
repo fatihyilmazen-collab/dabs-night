@@ -321,6 +321,13 @@ select{border:1px solid var(--line);background:var(--surface-2);border-radius:8p
 .flrow .flb{width:0;flex:1 1 0}
 .flhd{margin:14px 0 2px;font-size:14px}
 .flrow.new{border-left-color:var(--go)}
+
+/* removed activities */
+.rmd{border:1px dashed var(--line);border-radius:10px;padding:8px 12px;margin-top:4px}
+.rmd summary{cursor:pointer;color:var(--muted);font-weight:700;font-size:13.5px}
+.rmi{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line);font-size:13.5px}
+.rmi .link{flex:none}
+.row-tools .link+.link{margin-left:4px}
 </style>
 </head>
 <body>
@@ -360,6 +367,6 @@ select{border:1px solid var(--line);background:var(--surface-2);border-radius:8p
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(function(){});</script>
-<script type="module" src="app.js?v=2.0.11220212"></script>
+<script type="module" src="app.js?v=2.0.11220227"></script>
 </body>
 </html>

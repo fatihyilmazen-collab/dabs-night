@@ -2,7 +2,7 @@ import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,sendPasswordResetEmail,sendEmailVerification,updateProfile,signOut,GoogleAuthProvider,signInWithPopup} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {initializeFirestore,persistentLocalCache,persistentMultipleTabManager,doc as fdoc,collection as fcol,getDoc,getDocs,setDoc,updateDoc,deleteDoc,onSnapshot as fsnap,query as fquery,orderBy as forder,limit as flimit} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import {firebaseConfig,OWNER_EMAIL,ENV} from './firebase-config.js';
-const APP_VERSION='2.0.11220212';
+const APP_VERSION='2.0.11220227';
 
 
 const NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
@@ -35,7 +35,8 @@ let st={};         // per item state {status:{col:val}, blockers:[], note:'', ex
 let prepBy='';
 let filter={view:'all',level:null};
 let added=[];      // activities added on the night, not on the DABS
-const itemsOf=si=>[...doc.sections[si].items,...added.filter(a=>a.sec===si)];
+const itemsOfAll=si=>[...doc.sections[si].items,...added.filter(a=>a.sec===si)];
+const itemsOf=si=>itemsOfAll(si).filter(it=>!(st[it.id]&&st[it.id].rm));   // removed on the night: kept, but out of the list
 const allItems=()=>doc.sections.flatMap((s,i)=>itemsOf(i));
 
 /* ---------- utils ---------- */
@@ -256,11 +257,11 @@ function writeItem(id,delay){
   if(!cur||!canWrite)return;const nid=cur.id;
   dirty.add(id);clearTimeout(timers[id]);
   timers[id]=setTimeout(()=>{
-    dirty.delete(id);const s=st[id];const it=findItem(id);if(!s||!it||!cur||cur.id!==nid)return;
+    dirty.delete(id);const s=st[id];const it=findItem(id)||findItemAny(id);if(!s||!it||!cur||cur.id!==nid)return;
     const ch=describeChanges(it,base[id],s);
     const now=Date.now();
     if(ch.length){s.hist=[...(s.hist||[]),{at:now,by:authUser.uid,byName:myName(),ch}].slice(-25)}
-    const body={status:s.status,blockers:s.blockers,note:s.note,extra:s.extra,open:!!s.open,hist:s.hist||[],by:authUser.uid,byName:myName(),at:now};
+    const body={status:s.status,blockers:s.blockers,note:s.note,extra:s.extra,open:!!s.open,hist:s.hist||[],by:authUser.uid,byName:myName(),at:now,rm:s.rm||null,ov:s.ov||null};
     if(it.added)body.added={sec:it.sec,level:it.level,tag:it.tag,act:it.act,trades:it.trades,created:it.created||now,createdByName:it.createdByName||myName()};
     s.by=body.by;s.byName=body.byName;s.at=body.at;
     base[id]=JSON.parse(JSON.stringify({status:s.status,blockers:s.blockers,note:s.note}));
@@ -288,7 +289,9 @@ function applyItemDoc(id,d){
   }
   if(dirty.has(id))return false;      // this phone has a newer edit waiting to be written
   const focused=document.activeElement&&document.activeElement.id==='note-'+id;
-  st[id]={status:{...(d.status||{})},blockers:[...(d.blockers||[])],note:focused&&st[id]?st[id].note:(d.note||''),extra:[...(d.extra||[])],open:!!d.open,hist:[...(d.hist||[])],by:d.by||null,byName:d.byName||'',at:d.at||0};
+  const shape=JSON.stringify([st[id]&&st[id].rm||null,st[id]&&st[id].ov||null])!==JSON.stringify([d.rm||null,d.ov||null]);
+  st[id]={status:{...(d.status||{})},blockers:[...(d.blockers||[])],note:focused&&st[id]?st[id].note:(d.note||''),extra:[...(d.extra||[])],open:!!d.open,hist:[...(d.hist||[])],by:d.by||null,byName:d.byName||'',at:d.at||0,rm:d.rm||null,ov:d.ov||null};
+  applyOv(id);if(shape)itemShapeChanged=true;
   base[id]={status:{...(d.status||{})},blockers:[...(d.blockers||[])],note:d.note||''};
   return true;
 }
@@ -310,6 +313,7 @@ function subscribeItems(){
       if(d.added&&!added.some(a=>a.id===id))structural=true;
       if(applyItemDoc(id,d))changed.push(id);
     }
+    if(itemShapeChanged){structural=true;itemShapeChanged=false}
     first=false;initState();updateSync();
     if(structural)renderAllSoon();else{changed.forEach(id=>rerenderCard(id,true));renderTop()}
   },e=>{toast('Live updates stopped ('+(e.code||'error')+'). Reopen the app.')},true);
@@ -550,7 +554,8 @@ function cardHtml(it){
     ${blk}
     <div class="row-tools">
       ${!needBlk?`<button class="link" type="button" data-act="openblk" data-id="${it.id}">+ Blocker / note</button>`:''}
-      ${it.added?`<button class="link danger" type="button" data-act="remove" data-id="${it.id}">Remove</button>`:''}
+      <button class="link" type="button" data-act="edit" data-id="${it.id}">Edit</button>
+      <button class="link danger" type="button" data-act="remove" data-id="${it.id}">Remove</button>
       ${missing.length?`<select data-act="addtrade" data-id="${it.id}" aria-label="Add trade"><option value="">+ Add trade</option>${missing.map(t=>`<option value="${t.col}">${esc(t.name)}</option>`).join('')}</select>`:''}
     </div>
   </article>`;
@@ -585,7 +590,7 @@ function renderMain(){
     if(filter.view.startsWith('sec')&&filter.view!=='sec'+si)return '';
     if(!items.length&&filter.view==='open')return '';
     const bh=[...new Set(sec.items.map(i=>i.bh).filter(Boolean))].map(b=>b.replace(/\s*\n\s*(?=\()/g,' ').replace(/\s*\n\s*/g,' · ')).join(' · ');
-    return `<section class="sec"><h2>${esc(sec.title)}</h2>${bh?`<p class="meta" style="margin:-4px 0 10px">Black hat: ${esc(bh)}</p>`:''}<div class="list">${items.map(cardHtml).join('')}${addBtn}</div></section>`;
+    return `<section class="sec"><h2>${esc(sec.title)}</h2>${bh?`<p class="meta" style="margin:-4px 0 10px">Black hat: ${esc(bh)}</p>`:''}<div class="list">${items.map(cardHtml).join('')}${addBtn}${removedHtml(si)}</div></section>`;
   }).join('')||`<p style="color:var(--muted)">Nothing matches this filter.</p>`;
 }
 function renderBanner(){
@@ -1849,6 +1854,77 @@ function renderFill(){
     closeSheet();if(a)renderAll();else renderTop();
     toast([k?k+' job'+(k===1?'':'s')+' filled':'',a?a+' new activit'+(a===1?'y':'ies')+' added':''].filter(Boolean).join(' · ')+' from the field sheet')};
 }
+/* ---------- edit or remove one activity ---------- */
+let itemShapeChanged=false;
+function findItemAny(id){if(!doc)return null;for(let i=0;i<doc.sections.length;i++){const it=itemsOfAll(i).find(x=>x.id===id);if(it)return it}return null}
+/* a DABS row edited on the night: the item shows the edited text, the original is kept to undo */
+function applyOv(id){
+  if(!doc)return;let it=null;for(const s of doc.sections){it=s.items.find(x=>x.id===id);if(it)break}if(!it)return;
+  if(!it._o)it._o={tag:it.tag,act:it.act,level:it.level,trades:it.trades};
+  const o=st[id]&&st[id].ov,b=it._o,sec=doc.sections[it.sec];
+  it.tag=o&&o.tag!=null?o.tag:b.tag;it.act=o&&o.act!=null?o.act:b.act;it.level=o&&o.level!=null?o.level:b.level;
+  it.trades=o&&Array.isArray(o.cols)?sec.trades.filter(t=>o.cols.includes(t.col)).map(t=>({col:t.col,name:t.name})):b.trades;
+}
+function openEditItem(id){
+  const it=findItem(id);if(!it||!canWrite)return;const s=st[id];const sec=doc.sections[it.sec];
+  const cols=new Set(allCols(it));const orig=it._o;
+  openView('editItem',`<h3>Edit activity</h3>
+    ${!it.added?`<p class="nc">From the DABS. Your change is shown to the whole team and used in the Excel export${orig?`. On the DABS: <strong>${esc(orig.tag||'—')}</strong> · ${esc(orig.act)} · Lvl ${esc(orig.level)}`:''}.</p>`:''}
+    <form id="eiForm" novalidate style="display:flex;flex-direction:column;gap:10px">
+      <div class="grid2"><label for="eiLvl">Level<input id="eiLvl" value="${esc(it.level)}" inputmode="decimal"></label><span></span></div>
+      <label for="eiTag">${esc(sec.tagLabel||'Tag')}<input id="eiTag" value="${esc(it.tag)}" autocomplete="off"></label>
+      <label for="eiAct">Activity description<input id="eiAct" value="${esc(it.act)}" autocomplete="off"></label>
+      <fieldset style="border:0;padding:0;margin:0"><legend class="lbl" style="font-size:12px;color:var(--muted);margin-bottom:4px">Trades</legend>
+        <div class="bchips" id="eiTrades">${sec.trades.map(t=>`<button type="button" class="bchip pick" data-col="${t.col}" aria-pressed="${cols.has(t.col)}">${esc(t.name)}</button>`).join('')}</div></fieldset>
+      <p class="err" id="eiErr" hidden></p>
+      <div class="grid2"><button class="btn alt" type="button" id="eiNo">Cancel</button><button class="btn" type="submit">Save</button></div>
+      ${!it.added&&s&&s.ov?`<button class="ghost" type="button" id="eiReset">Back to the DABS text</button>`:''}
+    </form>`);
+  const picked=new Set(cols);
+  $('#eiTrades').onclick=e=>{const b=e.target.closest('.pick');if(!b)return;const c=+b.dataset.col;if(picked.has(c))picked.delete(c);else picked.add(c);b.setAttribute('aria-pressed',String(picked.has(c)))};
+  $('#eiNo').onclick=closeSheet;
+  const done=(msg,ch)=>{s.hist=[...(s.hist||[]),{at:Date.now(),by:authUser.uid,byName:myName(),ch}].slice(-25);closeSheet();renderAll();writeItem(id);toast(msg)};
+  const r=$('#eiReset');if(r)r.onclick=()=>{const was=it.tag+' · '+it.act;s.ov=null;
+    // statuses of trades that are no longer on the job are dropped with them
+    applyOv(id);s.extra=s.extra.filter(c=>!it.trades.some(t=>t.col===c));done('Back to the DABS text',['Edit undone (was: '+was+')'])};
+  $('#eiForm').onsubmit=e=>{e.preventDefault();
+    const tag=$('#eiTag').value.trim(),act=$('#eiAct').value.trim();let lvl=$('#eiLvl').value.trim().replace(',','.');
+    const n=parseFloat(lvl);if(lvl&&!isNaN(n)&&/^[+\-]?\d+(\.\d+)?$/.test(lvl))lvl=fmtLevel(n);
+    if(!act){const p=$('#eiErr');p.textContent='Enter the activity description.';p.hidden=false;return}
+    const ch=[];
+    if(tag!==it.tag)ch.push('Tag: '+(it.tag||'—')+' → '+(tag||'—'));
+    if(act!==it.act)ch.push('Activity: '+it.act+' → '+act);
+    if(lvl!==it.level)ch.push('Level: '+it.level+' → '+lvl);
+    const nowCols=sec.trades.filter(t=>picked.has(t.col)).map(t=>t.col);
+    const before=[...cols];
+    for(const c of nowCols)if(!before.includes(c))ch.push('Trade added: '+tradeLabel(it,c));
+    for(const c of before)if(!nowCols.includes(c)){ch.push('Trade removed: '+tradeLabel(it,c));delete s.status[c]}
+    if(!ch.length){closeSheet();return}
+    s.extra=[];   // trades are now set on the job itself
+    if(it.added){it.tag=tag;it.act=act;it.level=lvl;it.trades=sec.trades.filter(t=>nowCols.includes(t.col)).map(t=>({col:t.col,name:t.name}))}
+    else{const b=it._o||{tag:it.tag,act:it.act,level:it.level,trades:it.trades};
+      const same=tag===b.tag&&act===b.act&&lvl===b.level&&JSON.stringify(b.trades.map(t=>t.col).sort())===JSON.stringify([...nowCols].sort());
+      s.ov=same?null:{tag,act,level:lvl,cols:nowCols,byName:myName(),at:Date.now()};applyOv(id)}
+    done('Activity updated',ch)};
+}
+function confirmRemoveDabs(id){
+  const it=findItem(id);if(!it||!canWrite)return;const s=st[id];
+  const other=s.by&&authUser&&s.by!==authUser.uid;
+  openView('removeDabs',`<h3>Remove this activity?</h3><p><strong>${esc(it.tag||it.act)}</strong> · ${esc(it.act)}</p>
+    <p>It comes off tonight's list for the whole team and is not counted. In the Excel export its row is marked "REMOVED on the night". You can bring it back from the bottom of the ${esc(doc.sections[it.sec].short)} list.</p>
+    ${other?`<p>Last updated by <strong>${esc(s.byName||'a teammate')}</strong>${s.at?' at '+esc(fmtTime(s.at)):''}.</p>`:''}
+    <div class="grid2"><button class="btn alt" type="button" id="rdNo">Keep</button><button class="btn danger" type="button" id="rdYes">Remove</button></div>`);
+  $('#rdNo').onclick=closeSheet;
+  $('#rdYes').onclick=()=>{s.rm={at:Date.now(),by:authUser.uid,byName:myName()};s.hist=[...(s.hist||[]),{at:Date.now(),by:authUser.uid,byName:myName(),ch:['Removed from tonight\'s list']}].slice(-25);
+    closeSheet();renderAll();writeItem(id);toast('Activity removed')};
+}
+function removedHtml(si){
+  const rm=itemsOfAll(si).filter(it=>st[it.id]&&st[it.id].rm);if(!rm.length)return '';
+  return `<details class="rmd"><summary>${rm.length} removed activit${rm.length===1?'y':'ies'}</summary>${rm.map(it=>`<div class="rmi"><span><strong>${esc(it.tag||'—')}</strong> · ${esc(it.act)}<span class="nc"> · removed by ${esc(st[it.id].rm.byName||'someone')} ${esc(fmtTime(st[it.id].rm.at))}</span></span>${canWrite?`<button class="link" type="button" data-restore="${it.id}">Bring back</button>`:''}</div>`).join('')}</details>`;
+}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-restore]');if(!b||!canWrite)return;const id=b.dataset.restore;const s=st[id];if(!s)return;
+  s.rm=null;s.hist=[...(s.hist||[]),{at:Date.now(),by:authUser.uid,byName:myName(),ch:['Brought back to tonight\'s list']}].slice(-25);renderAll();writeItem(id);toast('Activity back on the list');
+  const el=$('#card-'+id);if(el)el.scrollIntoView({block:'center'})});
 /* ---------- events, with a check before changing someone else's entry or a DONE job ---------- */
 const okUntil={};   // after confirming once, further edits to the same job go through for a short while
 function guard(id,it,next,newVal,col){
@@ -1881,7 +1957,8 @@ document.addEventListener('click',e=>{
   else if(b.dataset.act==='blk'){const x=b.dataset.b;
     guard(id,it,()=>{s.blockers=s.blockers.includes(x)?s.blockers.filter(y=>y!==x):[...s.blockers,x];rerenderCard(id);writeItem(id)})}
   else if(b.dataset.act==='openblk'){s.open=true;rerenderCard(id);writeItem(id);const t=$('#note-'+id);if(t)t.focus()}
-  else if(b.dataset.act==='remove'){confirmRemove(id)}
+  else if(b.dataset.act==='remove'){if(it.added)confirmRemove(id);else confirmRemoveDabs(id)}
+  else if(b.dataset.act==='edit'){openEditItem(id)}
 });
 document.addEventListener('focusin',e=>{const t=e.target;if(!(t.dataset&&t.dataset.act==='note')||!canWrite)return;
   const id=t.dataset.id;const s=st[id];const it=findItem(id);if(!s||!it||!s.note)return;
@@ -2056,6 +2133,12 @@ async function buildXlsx(){
       if(h==null||h===''){setText(cellEl(sec.header,sec.cols.remark),'Remark/Blocker',getS(sec.header,sec.cols.act))}}
     for(const it of sec.items){
       const s=st[it.id];
+      if(s&&s.rm){   // removed on the night: say so on its row
+        const base=getS(it.row,sec.cols.remark)??getS(it.row,sec.cols.act)??0;
+        setText(cellEl(it.row,sec.cols.remark),(it.dayRemark?it.dayRemark+' | ':'')+'REMOVED on the night'+(s.rm.byName?' by '+s.rm.byName:''),wrapStyle(base));continue}
+      if(it._o){   // edited on the night: the row shows the new text, and trades taken off lose their mark
+        for(const [k,c] of [['tag',sec.cols.tag],['act',sec.cols.act],['level',sec.cols.level]])if(c&&it[k]!==it._o[k])setText(cellEl(it.row,c),it[k],getS(it.row,c)??0);
+        for(const t of it._o.trades)if(!allCols(it).includes(t.col))setText(cellEl(it.row,t.col),'',getS(it.row,t.col)??0)}
       for(const col of allCols(it)){
         const v=s.status[col]||'NOT DONE';
         const base=getS(it.row,col)??getS(it.row,sec.cols.act)??0;
