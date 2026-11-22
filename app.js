@@ -2,7 +2,7 @@ import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,sendPasswordResetEmail,sendEmailVerification,updateProfile,signOut,GoogleAuthProvider,signInWithPopup} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {initializeFirestore,persistentLocalCache,persistentMultipleTabManager,doc as fdoc,collection as fcol,getDoc,getDocs,setDoc,updateDoc,deleteDoc,onSnapshot as fsnap,query as fquery,orderBy as forder,limit as flimit} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import {firebaseConfig,OWNER_EMAIL,ENV} from './firebase-config.js';
-const APP_VERSION='2.0.11220130';
+const APP_VERSION='2.0.11220201';
 
 
 const NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
@@ -10,6 +10,10 @@ const RNS='http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const PKG='http://schemas.openxmlformats.org/package/2006/relationships';
 const XMLNS_XML='http://www.w3.org/XML/1998/namespace';
 const STATUSES=['DONE','ONGOING','NOT DONE'];
+/* rigging and lifting jobs (pre-rigging, pre lifting, lifting aid…) always belong to the Lifting trade, marked or not */
+const LIFT_RE=/rigg|lift/i;
+function liftingRule(act,secTrades,trades){if(!LIFT_RE.test(String(act||'')))return trades;
+  const t=secTrades.find(x=>/lift/i.test(x.name));if(t&&!trades.some(x=>x.col===t.col))trades.push({col:t.col,name:t.name});return trades}
 const BLOCKERS=[
   ['Scaffold not ready','Scaffolding'],
   ['Permit / isolation','Permits'],
@@ -145,6 +149,7 @@ async function parseDabs(u8,fileName){
       const trades=[];const pre={};const raw={};
       for(const t of s.trades){raw[t.col]=txt(own(r,t.col));const v=normStatusWord(raw[t.col]);
         if(v==='X'||STATUSES.includes(v)){trades.push(t);if(STATUSES.includes(v))pre[t.col]=v}}
+      liftingRule(act,s.trades,trades);
       s.items.push({id:i+'-'+r,row:r,sec:i,level:fmtLevel(s.cols.level?own(r,s.cols.level):''),
         shift:txt(own(r,s.cols.shift)),bh:txt(mv(r,s.cols.bh)),tag,act,dayRemark:txt(own(r,s.cols.remark)),trades,pre,raw});
     }
@@ -1059,7 +1064,7 @@ const briefMembers=T=>normTrade(T)==='piping'?[T,...qcTrades()]:[T];
 function tradeItems(T){const ms=briefMembers(T);return allItems().filter(it=>tradeNames(it).some(n=>ms.includes(n)))}
 /* Turn the DABS activity into what this trade actually does on that job. */
 const TRADE_WORDS=[
-  ['Lifting',[[/lifting aid/i,'Lifting aid for fit-up'],[/fit.?up/i,'Lifting aid for fit-up'],[/erect/i,'Lifting activity for erection'],[/deliver/i,'Delivery (offload and lift)'],[/skat|movement|move/i,'Skating / load movement'],[/weld/i,'Lifting support for welding'],[/lift/i,'Lifting activity']]],
+  ['Lifting',[[/rigg|pre[\s-]*lift/i,c=>c],[/lifting aid/i,'Lifting aid for fit-up'],[/fit.?up/i,'Lifting aid for fit-up'],[/erect/i,'Lifting activity for erection'],[/deliver/i,'Delivery (offload and lift)'],[/skat|movement|move/i,'Skating / load movement'],[/weld/i,'Lifting support for welding'],[/lift/i,'Lifting activity']]],
   ['Piping',[[/fit.?up/i,'Fit-up activity'],[/weld/i,'Spool welding'],[/erect/i,'Spool erection'],[/lift/i,'Rigging support for lifting'],[/scaffold/i,'Access check for scaffold']]],
   ['Plating',[[/erect/i,'Support erection'],[/weld/i,'Support welding'],[/fit.?up/i,'Support fit-up'],[/lift/i,'Support lifting preparation']]],
   ['Scaffolding',[[/scaffold/i,'Scaffold erection for access'],[/strip|dismantl/i,'Scaffold strip'],[/.*/,c=>'Scaffold access for '+c.toLowerCase()]]],
@@ -1726,7 +1731,12 @@ function matchFilled(filled){
   const tradeCol=(it,name)=>{
     const own=allCols(it).find(c=>sameTrade(tradeLabel(it,c),name));if(own!=null)return {col:own,extra:false};
     const sec=doc.sections[it.sec];const t=sec&&sec.trades.find(x=>sameTrade(x.name,name));return t?{col:t.col,extra:true}:null};
-  const rows=[];filled.secs.forEach((s,si)=>s.rows.forEach((r,ri)=>rows.push(Object.assign({si,ri},r))));
+  const rows=[];filled.secs.forEach((s,si)=>s.rows.forEach((r,ri)=>rows.push(Object.assign({si,ri,secTitle:s.title},r))));
+  // which of tonight's tables a filled table is: by its name (Spool / Support), else by position
+  const short=t=>String(t||'').replace(/^dabs\s*/i,'').replace(/\s+\d.*$/,'').trim().toLowerCase();
+  const secOf=r=>{const n=short(r.secTitle);let i=doc.sections.findIndex(s=>n&&short(s.title)===n);
+    if(i<0)i=doc.sections.findIndex(s=>n&&(short(s.title).startsWith(n.slice(0,4))||n.startsWith(short(s.title).slice(0,4))));
+    if(i<0)i=Math.min(r.si,doc.sections.length-1);return Math.max(0,i)};
   // 1) exact tag and activity, 2) the only job with that tag, 3) a tag with a misread letter or two
   for(const r of rows){
     const tg=fNormTag(r.tag),ac=fNormAct(r.act);const cand=items.filter(it=>!used.has(it.id));
@@ -1748,7 +1758,13 @@ function matchFilled(filled){
   }
   for(const r of rows){
     const hit=r.hit;
-    if(!hit){if(Object.values(r.marks).some(v=>v&&v!=='X')||r.remark)missing.push(r);continue}
+    if(!hit){
+      if(!String(r.act||'').trim()&&!String(r.tag||'').trim())continue;
+      const sec=secOf(r);const S=doc.sections[sec];const trades=[],status={};let guess=false;
+      for(const [name,v0] of Object.entries(r.marks||{})){if(!v0)continue;const t=S.trades.find(x=>sameTrade(x.name,name));if(!t)continue;
+        if(!trades.some(x=>x.col===t.col))trades.push({col:t.col,name:t.name});if(v0!=='X'){status[t.col]=v0.replace('?','');if(/\?/.test(v0))guess=true}}
+      liftingRule(r.act,S.trades,trades);
+      missing.push({sec,secName:S.short||S.title,level:r.level||'',tag:r.tag||'',act:r.act||'',trades,status,note:String(r.remark||'').trim(),crop:r.crop,guess,on:true});continue}
     const s0=st[hit.id]||{status:{},note:'',extra:[]};
     const changes=[];let guess=false;
     for(const [name,v0] of Object.entries(r.marks)){if(!v0||v0==='X')continue;const v=v0.replace('?','');if(/\?/.test(v0))guess=true;
@@ -1772,6 +1788,7 @@ function openFill(){
     <button class="btn" type="button" id="flPick">Choose Excel or pictures</button>
     <input type="file" id="flFile" accept=".xlsx,.xlsm,image/*" multiple hidden>
     <button class="ghost" type="button" id="flClose">Close</button>`);
+  $('#panel').onchange=null;$('#panel').oninput=null;$('#panel').onclick=null;
   $('#flClose').onclick=closeSheet;$('#flPick').onclick=()=>$('#flFile').click();
   $('#flFile').onchange=async e=>{const fs=[...e.target.files];e.target.value='';if(!fs.length)return;
     const imgs=fs.filter(x=>/^image\//.test(x.type)||/\.(png|jpe?g|webp|heic)$/i.test(x.name));
@@ -1788,7 +1805,7 @@ function renderFill(){
   const p=fillPlan;const nk=nightDateKey(cur);
   const tone=v=>v==='DONE'?'ok':v==='ONGOING'?'go':v==='NOT DONE'?'no':'un';
   const ch=c=>`<span class="flc"><b>${esc(c.name)}</b> ${c.from?`<span class="hs ${tone(c.from)}">${esc(c.from)}</span> → `:''}<span class="hs ${tone(c.to)}">${esc(c.to)}${c.guess?' ?':''}</span></span>`;
-  const n=p.rows.filter(r=>r.on).length;
+  const n=p.rows.filter(r=>r.on).length+p.missing.filter(r=>r.on).length;
   openView('fillRev',`<h3>Check before filling</h3>
     <p class="nc">${esc(p.src)} → <strong>${esc(cur.label)}</strong> · ${p.total} rows read · ${p.rows.length} jobs to update</p>
     ${p.titleKey&&nk&&p.titleKey!==nk?`<p class="err">The sheet's title says <strong>${esc(keyLabel(p.titleKey))}</strong>, but the night on screen is <strong>${esc(cur.label)}</strong>. Make sure it is the right sheet.</p>`:''}
@@ -1799,20 +1816,38 @@ function renderFill(){
         ${r.crop?`<span class="phcrop"><img src="${r.crop}" alt="Row as read from the picture"></span>`:''}
         <span class="flcs">${r.changes.map(ch).join('')}</span>
         ${r.note!=null?`<span class="fln">Note${r.oldNote?' <span class="nc">(added under the existing note)</span>':''}<textarea rows="2" data-fln="${i}" aria-label="Note for ${esc(r.tag||r.act)}">${esc(r.note)}</textarea></span>`:''}
-        ${r.conflict?`<span class="flw">Changes an entry${r.byName?' by '+esc(r.byName):''}</span>`:''}${r.unsure?'<span class="flw">Tag read differently, check it is the same job</span>':''}${r.guess?'<span class="flw">"?" = the word was not readable, status taken from the cell colour</span>':''}</span></label>`).join('')||'<p>Everything on the sheet is already in the app.</p>'}</div>
-    ${p.missing.length?`<details class="phall"><summary>${p.missing.length} filled row${p.missing.length>1?'s':''} not found tonight</summary><ul class="flmiss">${p.missing.map(r=>`<li><strong>${esc(r.tag||'-')}</strong> · ${esc(r.act)} · ${esc(Object.entries(r.marks).filter(([k,v])=>v&&v!=='X').map(([k,v])=>k+' '+v).join(', '))}${r.remark?' · '+esc(r.remark):''}</li>`).join('')}</ul><p class="nc">Add these with "+ Add activity" if they were extra work.</p></details>`:''}
+        ${r.conflict?`<span class="flw">Changes an entry${r.byName?' by '+esc(r.byName):''}</span>`:''}${r.unsure?'<span class="flw">Tag read differently, check it is the same job</span>':''}${r.guess?'<span class="flw">"?" = the word was not readable, status taken from the cell colour</span>':''}</span></label>`).join('')||(p.missing.length?'':'<p>Everything on the sheet is already in the app.</p>')}</div>
+    ${p.missing.length?`<h4 class="flhd">New activities · not on tonight's DABS (${p.missing.length})</h4>
+    <p class="nc">These rows were added on site. They go under their own table in the app and in the "night added" block of the Excel export.</p>
+    <div class="flist">${p.missing.map((m,i)=>`<label class="flrow new">
+      <input type="checkbox" data-flm="${i}"${m.on?' checked':''}>
+      <span class="flb"><strong>${esc(m.tag||'-')}</strong> <span class="nc">${esc(m.act)} · Lvl ${esc(m.level||'?')} · → ${esc(m.secName)}</span>
+        ${m.crop?`<span class="phcrop"><img src="${m.crop}" alt="Row as read from the picture"></span>`:''}
+        <span class="flcs">${m.trades.map(t=>`<span class="flc"><b>${esc(t.name)}</b> ${m.status[t.col]?`<span class="hs ${tone(m.status[t.col])}">${esc(m.status[t.col])}${m.guess?' ?':''}</span>`:'<span class="hs un">no status</span>'}</span>`).join('')||'<span class="nc">No trade marked</span>'}</span>
+        <span class="fln">Note<textarea rows="2" data-flmn="${i}" aria-label="Note for ${esc(m.tag||m.act)}">${esc(m.note)}</textarea></span></span></label>`).join('')}</div>`:''}
+
     <div class="grid2"><button class="btn alt" type="button" id="frNo">Cancel</button><button class="btn" type="button" id="frYes"${n?'':' disabled'}>Fill ${n} job${n===1?'':'s'}</button></div>`);
   $('#frNo').onclick=closeSheet;
-  $('#panel').oninput=e=>{const t=e.target.closest('[data-fln]');if(t)p.rows[+t.dataset.fln].note=t.value};
-  $('#panel').onclick=e=>{if(e.target.closest('textarea'))e.preventDefault()};
-  $('#panel').onchange=e=>{const c=e.target.closest('[data-fl]');if(!c)return;p.rows[+c.dataset.fl].on=c.checked;const k=p.rows.filter(r=>r.on).length;const b=$('#frYes');b.textContent=`Fill ${k} job${k===1?'':'s'}`;b.disabled=!k};
+  $('#panel').oninput=e=>{if(sheetView!=='fillRev')return;const t=e.target.closest('[data-fln]');if(t)p.rows[+t.dataset.fln].note=t.value;const m=e.target.closest('[data-flmn]');if(m)p.missing[+m.dataset.flmn].note=m.value};
+  $('#panel').onclick=e=>{if(sheetView!=='fillRev')return;if(e.target.closest('textarea'))e.preventDefault()};
+  const count=()=>{const a=p.rows.filter(r=>r.on).length,m=p.missing.filter(r=>r.on).length;return [a,m]};
+  const label=()=>{const [a,m]=count();const b=$('#frYes');if(!b)return;b.textContent=a&&m?`Fill ${a} · add ${m}`:m?`Add ${m} new activit${m===1?'y':'ies'}`:`Fill ${a} job${a===1?'':'s'}`;b.disabled=!(a+m)};
+  $('#panel').onchange=e=>{if(sheetView!=='fillRev')return;const c=e.target.closest('[data-fl]');if(c)p.rows[+c.dataset.fl].on=c.checked;const m=e.target.closest('[data-flm]');if(m)p.missing[+m.dataset.flm].on=m.checked;label()};label();
   $('#frYes').onclick=()=>{let k=0;
     for(const r of p.rows){if(!r.on)continue;const s=st[r.id];if(!s)continue;
       for(const c of r.changes){if(c.extra&&!s.extra.includes(c.col))s.extra.push(c.col);s.status[c.col]=c.to}
       const nt=String(r.note||'').trim();
       if(nt){s.note=s.note?s.note.replace(/\s+$/,'')+'\n'+nt:nt;s.open=true}
       rerenderCard(r.id);writeItem(r.id);k++}
-    closeSheet();renderTop();toast(k+' job'+(k===1?'':'s')+' filled from the field sheet')};
+    let a=0;
+    for(const m of p.missing){if(!m.on)continue;
+      const id='a'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+      added.push({id,sec:m.sec,added:true,level:m.level,shift:'Night',bh:'',tag:m.tag,act:m.act,dayRemark:'',trades:m.trades,pre:{},created:Date.now(),createdByName:myName()+' (field sheet)'});
+      const nt=String(m.note||'').trim();
+      st[id]={status:{...m.status},blockers:[],note:nt,open:!!nt,extra:[],hist:[]};base[id]={status:{},blockers:[],note:''};
+      writeItem(id);a++}
+    closeSheet();if(a)renderAll();else renderTop();
+    toast([k?k+' job'+(k===1?'':'s')+' filled':'',a?a+' new activit'+(a===1?'y':'ies')+' added':''].filter(Boolean).join(' · ')+' from the field sheet')};
 }
 /* ---------- events, with a check before changing someone else's entry or a DONE job ---------- */
 const okUntil={};   // after confirming once, further edits to the same job go through for a short while
@@ -1899,6 +1934,9 @@ function openAddForm(si){
     $('#aTrades').innerHTML=sec.trades.map(t=>`<button type="button" class="bchip pick" data-col="${t.col}" aria-pressed="false">${esc(t.name)}</button>`).join('')};
   fillSec();
   $('#aSec').onchange=fillSec;
+  // typing a rigging or lifting job picks Lifting for you
+  $('#aAct').addEventListener('input',()=>{if(!LIFT_RE.test($('#aAct').value))return;const b=[...$('#aTrades').querySelectorAll('.pick')].find(x=>/lift/i.test(x.textContent));
+    if(b&&!picked.has(+b.dataset.col)){picked.add(+b.dataset.col);b.setAttribute('aria-pressed','true')}});
   $('#aLvl').onchange=()=>{$('#aLvlOtherWrap').hidden=$('#aLvl').value!=='__other'};
   $('#aTrades').onclick=e=>{const b=e.target.closest('.pick');if(!b)return;const c=+b.dataset.col;
     if(picked.has(c))picked.delete(c);else picked.add(c);b.setAttribute('aria-pressed',String(picked.has(c)))};
